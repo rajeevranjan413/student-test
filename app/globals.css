@@ -1,26 +1,33 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* 1. Tell Tailwind to use the class strategy for dark mode (required for next-themes) */
+@variant dark (&:is(.dark *));
 
-@theme inline {
+/* 2. Map your custom CSS variables to Tailwind's utility classes */
+@theme {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-primary: var(--primary);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* 3. Define the actual color values for Light Mode */
+:root {
+  --background: #ffffff;
+  --foreground: #09090b;
+  --primary: #2563eb; /* Brand blue */
+}
+
+/* 4. Define the color values for Dark Mode */
+.dark {
+  --background: #09090b;
+  --foreground: #ffffff;
+  --primary: #3b82f6; /* Lighter blue for dark mode visibility */
+}
+
+/* Apply the background and foreground colors to the body */
+@layer base {
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
   }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
 }
