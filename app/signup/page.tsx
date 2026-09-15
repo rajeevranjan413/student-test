@@ -21,7 +21,7 @@ export default function SignupPage() {
   useEffect(() => {
     const fetchBatches = async () => {
       try {
-        const res = await fetch("/api/batches");
+        const res = await fetch("/api/public/batches");
         if (res.ok) {
           const data = await res.json();
           setBatches(data);
@@ -132,7 +132,7 @@ export default function SignupPage() {
                 ) : (
                   batches.map((batch) => (
                     <option key={batch.id} value={batch.id} className="bg-background text-foreground">
-                      {batch.name} {batch.courses?.name ? `(${batch.courses.name})` : ""}
+                      {batch.name} {batch.course ? `(${batch.course})` : ""}
                     </option>
                   ))
                 )}

@@ -4,8 +4,17 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Plus, Trash2, Edit, Loader2, BookOpen } from "lucide-react";
 
+type Batch = {
+  id: string;
+  name: string;
+  course: string;
+  secret_pass: string;
+  student_count?: number;
+  test_count?: number;
+};
+
 export default function BatchesPage() {
-  const [batches, setBatches] = useState<any[]>([]);
+  const [batches, setBatches] = useState<Batch[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchBatches = async () => {
@@ -57,7 +66,7 @@ export default function BatchesPage() {
         <div className="text-center py-12 rounded-xl border border-border">
           <BookOpen className="h-12 w-12 mx-auto text-muted-foreground mb-4 opacity-50" />
           <h3 className="text-lg font-medium text-foreground">No batches found</h3>
-          <p className="text-muted-foreground mb-4">You haven't created any batches yet.</p>
+          <p className="text-muted-foreground mb-4">You haven&apos;t created any batches yet.</p>
         </div>
       ) : (
         <div className="rounded-xl border border-border overflow-hidden bg-background">
@@ -67,19 +76,27 @@ export default function BatchesPage() {
                 <th className="px-6 py-4 text-sm font-medium text-muted-foreground">Batch Name</th>
                 <th className="px-6 py-4 text-sm font-medium text-muted-foreground">Course Name</th>
                 <th className="px-6 py-4 text-sm font-medium text-muted-foreground">Secret Pass Code</th>
+                <th className="px-6 py-4 text-sm font-medium text-muted-foreground text-center">Students</th>
+                <th className="px-6 py-4 text-sm font-medium text-muted-foreground text-center">Tests</th>
                 <th className="px-6 py-4 text-sm font-medium text-muted-foreground text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {batches.map((batch) => (
                 <tr key={batch.id} className="border-b border-border hover:bg-muted/30 transition-colors">
-                  <td className="px-6 py-4 text-sm font-medium text-foreground">{batch.name}</td>
+                  <td className="px-6 py-4 text-sm font-medium">
+                    <Link href={`/admin/batches/${batch.id}`} className="text-foreground hover:text-primary transition-colors">
+                      {batch.name}
+                    </Link>
+                  </td>
                   <td className="px-6 py-4 text-sm text-muted-foreground">{batch.course}</td>
                   <td className="px-6 py-4">
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-foreground">
                       {batch.secret_pass}
                     </span>
                   </td>
+                  <td className="px-6 py-4 text-sm text-center text-muted-foreground">{batch.student_count ?? 0}</td>
+                  <td className="px-6 py-4 text-sm text-center text-muted-foreground">{batch.test_count ?? 0}</td>
                   <td className="px-6 py-4 text-right space-x-2">
                     <Link href={`/admin/batches/${batch.id}/edit`} className="inline-block p-2 text-muted-foreground hover:text-primary transition-colors rounded-lg hover:bg-primary/10">
                       <Edit className="h-5 w-5" />

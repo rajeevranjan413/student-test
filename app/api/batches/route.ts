@@ -1,72 +1,99 @@
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
+import { NextResponse } from "next/server";
+import { AuthError, requireTeacher } from "@/utils/auth";
 
-// 1. READ ALL (GET)
-export async function GET() {
+// 1. READ ALL (GET) — teacher only. Excludes archived batches by default.
+export async function GET(request: Request) {
   try {
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-      {
-        cookies: {
-          getAll() { return cookieStore.getAll(); },
-          setAll(cookiesToSet) {
-            try { cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options)); } catch {}
-          },
-        },
-      }
-    );
+    const { supabase } = await requireTeacher();
+    const includeArchived =
+      new URL(request.url).searchParams.get("includeArchived") === "true";
 
-    // Fetch batches directly using the course text field
-    const { data, error } = await supabase
-      .from('batches')
-      .select('id, name, course, secret_pass')
-      .order('created_at', { ascending: false });
+    let query = supabase
+      .from("batches")
+      .select("id, name, course, description, exam_level, secret_pass, status, created_at")
+      .order("created_at", { ascending: false });
 
+    if (!includeArchived) query = query.eq("status", "active");
+
+    const { data, error } = await query;
     if (error) throw error;
 
-    return NextResponse.json(data);
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const batches = data ?? [];
+    const ids = batches.map((b) => b.id as string);
+
+    // Student & test counts per batch (teacher SELECT policies cover both tables).
+    const studentCounts = new Map<string, number>();
+    const testCounts = new Map<string, number>();
+    if (ids.length > 0) {
+      const [{ data: enrollments, error: eErr }, { data: quizzes, error: qErr }] =
+        await Promise.all([
+          supabase.from("student_batches").select("batch_id").in("batch_id", ids),
+          supabase.from("quizzes").select("batch_id").in("batch_id", ids),
+        ]);
+      if (eErr) throw eErr;
+      if (qErr) throw qErr;
+      for (const row of enrollments ?? []) {
+        const bid = row.batch_id as string;
+        studentCounts.set(bid, (studentCounts.get(bid) ?? 0) + 1);
+      }
+      for (const row of quizzes ?? []) {
+        const bid = row.batch_id as string;
+        if (bid) testCounts.set(bid, (testCounts.get(bid) ?? 0) + 1);
+      }
+    }
+
+    const rows = batches.map((b) => ({
+      ...b,
+      student_count: studentCounts.get(b.id as string) ?? 0,
+      test_count: testCounts.get(b.id as string) ?? 0,
+    }));
+
+    return NextResponse.json(rows);
+  } catch (error) {
+    if (error instanceof AuthError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Unknown error" },
+      { status: 500 }
+    );
   }
 }
 
-// 2. CREATE (POST)
+// 2. CREATE (POST) — teacher only.
 export async function POST(request: Request) {
   try {
-    const { name, course, secret_pass } = await request.json();
-    const cookieStore = await cookies();
-    
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-      {
-        cookies: {
-          getAll() { return cookieStore.getAll(); },
-          setAll(cookiesToSet) {
-            try { cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options)); } catch {}
-          },
-        },
-      }
-    );
+    const { supabase, user } = await requireTeacher();
+    const { name, course, secret_pass, description, exam_level } =
+      await request.json();
 
-    // Get the logged-in teacher securely from the session
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!name || !course || !secret_pass) {
+      return NextResponse.json(
+        { error: "name, course, and secret_pass are required" },
+        { status: 400 }
+      );
+    }
 
-    const { data, error } = await supabase.from('batches').insert({
-      name,
-      course,
-      secret_pass,
-      teacher_id: user.id
-    }).select().single();
+    const { data, error } = await supabase
+      .from("batches")
+      .insert({
+        name,
+        course,
+        secret_pass,
+        description: description ?? null,
+        exam_level: exam_level ?? null,
+        teacher_id: user.id,
+      })
+      .select()
+      .single();
 
     if (error) throw error;
-    
     return NextResponse.json(data);
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error) {
+    if (error instanceof AuthError)
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Unknown error" },
+      { status: 500 }
+    );
   }
 }

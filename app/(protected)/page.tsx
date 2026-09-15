@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { GraduationCap, Presentation } from "lucide-react";
+import { GraduationCap, Presentation, Trophy } from "lucide-react";
 
 export default function HomePage() {
   return (
@@ -42,6 +42,13 @@ export default function HomePage() {
           </p>
         </Link>
       </div>
+
+      <Link
+        href="/leaderboard"
+        className="mt-8 inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
+      >
+        <Trophy className="h-4 w-4" /> View public leaderboard
+      </Link>
     </main>
   );
 }

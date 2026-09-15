@@ -2,17 +2,18 @@
 
 import { useState } from 'react';
 // Import your provided browser client utility (adjust path if needed)
-import { createClient } from '@/utils/supabase/client'; 
+import { createClient } from '@/utils/supabase/client';
 
+type Option = { key: string; text: string };
 type Question = {
-  question_text: string;
-  options: string[];
-  correct_answer: string;
+  text: string;
+  options: Option[];
+  correctOptionKey: string;
+  explanation?: string;
+  difficulty?: string;
 };
 
 export default function QuizBuilder() {
-  const supabase = createClient();
-
   const [title, setTitle] = useState('');
   const [prompt, setPrompt] = useState('');
   const [image, setImage] = useState<File | null>(null);
@@ -70,6 +71,10 @@ export default function QuizBuilder() {
     
     setIsSaving(true);
     try {
+      // Create the browser client lazily (only when saving), so the module
+      // never instantiates it during render/prerender.
+      const supabase = createClient();
+
       // 1. Insert Quiz
       const { data: quizData, error: quizError } = await supabase
         .from('quizzes')
@@ -80,11 +85,14 @@ export default function QuizBuilder() {
       if (quizError) throw quizError;
 
       // 2. Insert Questions
-      const questionsToInsert = finalQuestions.map(q => ({
+      const questionsToInsert = finalQuestions.map((q, i) => ({
         quiz_id: quizData.id,
-        question_text: q.question_text,
-        options: q.options,
-        correct_answer: q.correct_answer
+        question_text: q.text,
+        options: q.options, // jsonb: [{ key, text }]
+        correct_answer: q.correctOptionKey,
+        explanation: q.explanation ?? null,
+        difficulty: q.difficulty ?? null,
+        order: i,
       }));
 
       const { error: qError } = await supabase
@@ -156,13 +164,15 @@ export default function QuizBuilder() {
           <div className="space-y-4">
             {stagedQuestions.map((q, i) => (
               <div key={i} className="border p-4 rounded bg-white shadow-sm">
-                <p className="font-semibold mb-2">{q.question_text}</p>
+                <p className="font-semibold mb-2">{q.text}</p>
                 <div className="space-y-1 mb-3">
                   {q.options.map((opt, j) => (
-                    <div key={j} className="text-sm border p-1 rounded bg-gray-50">{opt}</div>
+                    <div key={j} className="text-sm border p-1 rounded bg-gray-50">
+                      <span className="font-medium mr-1">{opt.key}.</span>{opt.text}
+                    </div>
                   ))}
                 </div>
-                <p className="text-sm text-green-700 font-medium mb-3">Answer: {q.correct_answer}</p>
+                <p className="text-sm text-green-700 font-medium mb-3">Answer: {q.correctOptionKey}</p>
                 <div className="flex gap-2">
                   <button onClick={() => keepQuestion(q, i)} className="bg-green-600 text-white px-3 py-1 rounded text-sm">Keep</button>
                   <button onClick={() => removeStagedQuestion(i)} className="bg-red-500 text-white px-3 py-1 rounded text-sm">Discard</button>
@@ -182,7 +192,7 @@ export default function QuizBuilder() {
           <div className="space-y-3 mb-6">
             {finalQuestions.map((q, i) => (
               <div key={i} className="border p-3 rounded flex justify-between items-start bg-gray-50">
-                <p className="text-sm font-medium">{i + 1}. {q.question_text}</p>
+                <p className="text-sm font-medium">{i + 1}. {q.text}</p>
                 <button onClick={() => removeFinalQuestion(i)} className="text-red-500 text-xs font-bold ml-4 hover:underline">Remove</button>
               </div>
             ))}

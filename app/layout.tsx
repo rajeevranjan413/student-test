@@ -1,5 +1,6 @@
 
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
+import { AntdProvider } from "@/components/providers/AntdProvider";
 import "./globals.css";
 
 export const metadata = {
@@ -22,7 +23,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           {/* We removed the DashboardLayout wrapper here so the home page can be full screen */}
-          {children}
+          <AntdProvider>{children}</AntdProvider>
         </ThemeProvider>
       </body>
     </html>
