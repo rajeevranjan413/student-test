@@ -25,19 +25,19 @@ export default function CreateBatchPage() {
 
       if (!res.ok) throw new Error((await res.json()).error || "Failed to create batch");
       router.push("/admin/batches");
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create batch");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="p-8 max-w-2xl mx-auto">
+    <div className="mx-auto max-w-2xl p-4 sm:p-6 lg:p-8">
       <Link href="/admin/batches" className="inline-flex items-center text-sm text-muted-foreground hover:text-primary mb-6 transition-colors">
         <ArrowLeft className="h-4 w-4 mr-2" /> Back to Batches
       </Link>
-      <div className="rounded-xl border border-border bg-background p-8 shadow-sm">
+      <div className="rounded-xl border border-border bg-background p-6 shadow-sm sm:p-8">
         <h1 className="text-2xl font-bold text-foreground mb-6">Create New Batch</h1>
         {error && <div className="mb-6 p-3 bg-red-500/10 text-red-500 text-sm rounded-lg border border-red-500/20">{error}</div>}
         

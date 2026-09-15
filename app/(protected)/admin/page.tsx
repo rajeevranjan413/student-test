@@ -21,6 +21,7 @@ import {
   PlusOutlined,
   TeamOutlined,
 } from "@ant-design/icons";
+import { PageContainer } from "@/components/layout/PageContainer";
 
 const { Title, Text } = Typography;
 
@@ -86,7 +87,7 @@ export default function AdminHomePage() {
     );
 
   return (
-    <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
+    <PageContainer>
       <div
         style={{
           display: "flex",
@@ -219,6 +220,6 @@ export default function AdminHomePage() {
           </Card>
         </Col>
       </Row>
-    </div>
+    </PageContainer>
   );
 }

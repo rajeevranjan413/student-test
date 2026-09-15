@@ -1,5 +1,71 @@
 # CHANGELOG
 
+## 2026-09-15 — F3: manual question entry in the test wizard
+
+Admins can now author a question + its options by hand, alongside (or instead of)
+AI generation. Doc-first: `docs/FEATURES.md` F3 + `docs/ARCHITECTURE.md` route table
+updated before code.
+
+**Changed**
+- `app/(protected)/admin/quizzes/new/page.tsx` — added **Add question manually**
+  entry points on the Generate step (with an "or" divider, so a test needs no image)
+  and the Review step header/empty-state. Reuses the existing `EditQuestionModal`,
+  now driven by an `isNew` flag (dynamic title + "Add to test" CTA). Manual
+  questions are **auto-approved** — the teacher authored them, so they land directly
+  in the approved list (removable there) rather than the review queue; the Review
+  shortcut on the Generate step also surfaces the pending AI-candidate count.
+- `EditQuestionModal` now **validates** before save (non-empty question text + all
+  four options) for both add and edit.
+
+**Unchanged**
+- No schema/API change — manual questions use the same
+  `{text, options[4], correctOptionKey, explanation?, difficulty?}` shape and the
+  existing `POST /api/tests` contract.
+
+Verified: `npx tsc --noEmit` clean · `npx eslint` on the changed file clean ·
+`npx next build` passes.
+
+## 2026-09-15 — UI audit: consistent, premium, mobile-first pass (DECISIONS D17)
+
+Cross-cutting UI polish across every page. No feature/behaviour/API change; no
+system swaps (Tailwind pages stay Tailwind, antd pages stay antd per AGENTS §2).
+
+**Fixed**
+- `app/globals.css` — the design-token set was incomplete: only `background`/
+  `foreground`/`primary` were mapped, so Tailwind classes the pages already used
+  (`text-muted-foreground`, `border-border`, `bg-muted`, `text-primary-foreground`,
+  `bg-card`, `focus:ring-ring`) silently resolved to nothing. Added the full
+  light+dark token palette (zinc neutrals + brand blue) and a base `border-color`,
+  which repairs the look of `login`, `signup`, `/admin/batches`, `/admin/batches/new`
+  and the header in one change.
+
+**Changed**
+- `components/layout/Header.tsx` — now **role-aware** (links derive from the current
+  path: admin vs student vs minimal on `/`), mobile-first (hamburger only when links
+  exist, active-state styling), with a **working Sign-out** (was missing though the
+  `/api/auth/logout` route existed). Removed the dead `/admin/settings` link and the
+  no-op notification bell.
+- `components/layout/PageContainer.tsx` (new) — shared wrapper giving every antd
+  admin/student screen one max-width and a fluid mobile-first gutter
+  (`clamp(16px,4vw,24px)`), replacing per-page hardcoded `padding:24`/`maxWidth`.
+  Adopted by all antd pages (admin dashboard, quizzes, students, batch/student/test
+  detail, batch edit, test wizard, student dashboard, take-test, leaderboard).
+- Mobile-first tables: `scroll={{ x: "max-content" }}` on every antd `Table`, and the
+  `/admin/batches` raw table now scrolls (`overflow-x-auto` + `min-w`) instead of
+  clipping (`overflow-hidden`). Tailwind form/list pages got responsive padding
+  (`p-4 sm:p-6 lg:p-8`) and wrapping headers.
+- `app/(protected)/student/page.tsx` — dropped a hardcoded `rgba(0,0,0,.45)` that was
+  near-invisible in dark mode (antd `Text type="secondary"` handles it).
+- `app/(protected)/admin/batches/new/page.tsx` — fixed its pre-existing `catch (e:any)`
+  lint error since the file became part of this diff.
+
+**Not touched (flagged):** legacy `app/home/page.tsx` (browser-write quiz builder,
+already slated for retirement) — off-brand colours / no dark mode; left as-is to avoid
+touching the deprecated direct-write flow.
+
+**Verified:** `npx tsc --noEmit`, `npx eslint` (changed files), `npx next build` all
+pass. Visual/dark-mode click-through needs your own Supabase keys.
+
 ## 2026-09-15 — Admin dashboard + retire mock /teacher (DECISIONS D16 / F9)
 
 Completed F9 (Admin dashboard) — the last feature item in the backlog.

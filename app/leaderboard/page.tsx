@@ -14,6 +14,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { TrophyOutlined } from "@ant-design/icons";
+import { PageContainer } from "@/components/layout/PageContainer";
 
 const { Title, Text } = Typography;
 
@@ -110,7 +111,7 @@ export default function LeaderboardPage() {
   ];
 
   return (
-    <div style={{ padding: 24, maxWidth: 880, margin: "0 auto" }}>
+    <PageContainer max={880}>
       <Flex justify="space-between" align="center" wrap="wrap" style={{ marginBottom: 8, gap: 12 }}>
         <Title level={2} style={{ margin: 0 }}>
           <TrophyOutlined style={{ marginRight: 10, color: "#faad14" }} />
@@ -141,6 +142,7 @@ export default function LeaderboardPage() {
           loading={loading}
           columns={columns}
           dataSource={rows}
+          scroll={{ x: "max-content" }}
           pagination={{ pageSize: 20, hideOnSinglePage: true }}
           locale={{
             emptyText: (
@@ -149,6 +151,6 @@ export default function LeaderboardPage() {
           }}
         />
       </Card>
-    </div>
+    </PageContainer>
   );
 }

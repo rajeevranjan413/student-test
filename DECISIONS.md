@@ -228,7 +228,59 @@ score). Migration `20260915140000_enable_rls.sql` backs the API with RLS:
   API it calls enforces `requireTeacher`, so an empty/500 state is the worst a
   non-teacher could see (they can't reach the page anyway).
 
+## D17 — UI consistency pass: complete design tokens, role-aware nav, shared container
+A cross-cutting "simple, premium, consistent, mobile-first" pass. Deliberately kept
+within AGENTS §2: **no system swaps** — Tailwind pages stay Tailwind, antd pages stay
+antd — so the two systems still coexist by design (see D2).
+- **Root cause of the "half-styled" look:** `globals.css` mapped only three tokens
+  (`background`/`foreground`/`primary`) into Tailwind's `@theme`, but the Tailwind
+  pages were already written against `muted`, `muted-foreground`, `border`,
+  `primary-foreground`, `card`, `ring`. Those classes silently produced no style.
+  Fix = declare the **full token palette** (zinc neutrals + brand blue, light+dark)
+  once in `globals.css`; every Tailwind page picks up the correct look with no page
+  edits. This is the source of truth for both systems' colours (antd's `colorPrimary`
+  in `AntdProvider` is set to the same `#2563eb`).
+- **Nav is now role-derived from the path**, not a fixed admin bar shown on every
+  protected route. Students no longer see admin links; `/` shows a minimal bar; a
+  real **Sign out** was wired to the existing `/api/auth/logout`; the dead
+  `/admin/settings` link and no-op bell were removed. Kept it path-based (not a role
+  fetch) to avoid an extra round-trip in a client component — the server still
+  enforces access via `middleware.ts`.
+- **`components/layout/PageContainer.tsx`** standardises max-width + a fluid
+  mobile-first gutter for the antd screens (was per-page hardcoded `padding:24`).
+  antd `Table`s get `scroll={{ x: "max-content" }}` so they scroll within their card
+  on phones instead of overflowing the viewport.
+
+## D18 — Student registration gates on the per-batch enrollment code (spec §F1) — DONE
+**Bug:** students couldn't sign in with the secret their teacher gave them. The
+teacher hands out a **batch's `secret_pass`** (the per-batch enrollment code that
+DATA-MODEL — the source of truth — has always documented, and that the signup field
+labels "Provided by your teacher"), but `app/api/auth/register` validated the entered
+code against a single **global** `REGISTRATION_SECRET_PASS` env var. Any student
+entering their batch code got `Invalid secret password` (400) → no account → couldn't
+log in. F1/ARCHITECTURE described the global-secret design; DATA-MODEL described the
+per-batch one. They contradicted.
+
+**Resolution — reconcile toward the per-batch code** (DATA-MODEL wins as source of
+truth, and it's the more meaningful design: each batch has its own teacher-managed
+code):
+- `POST /api/auth/register` now **requires `batchId`**, looks up that batch via the
+  service role, rejects a missing/archived batch, and compares the entered
+  `secretPass` to **that batch's `secret_pass`**. Wrong code → 400.
+- `REGISTRATION_SECRET_PASS` is kept only as an **optional global master override**
+  (accepted for any batch) so existing deployments and an admin "skeleton key" still
+  work; unset ⇒ only the per-batch code is accepted. Additive, non-breaking.
+- **Hardening while here:** the secret is validated **before** any user is created;
+  duplicate email → friendly 409 (was a raw 500); if the profile/enrollment insert
+  fails after `auth.users` creation, the orphaned auth user is best-effort deleted so
+  a retry isn't blocked by "email already registered"; batch code compared without
+  leaking whether the batch exists.
+- No schema change (DATA-MODEL already had `batches.secret_pass`). Docs updated
+  first: FEATURES F1 (now ✅), ARCHITECTURE §3, `.env.example`.
+
 ## Open items (next passes)
 - When the legacy `/home` browser-write builder is retired, tighten the teacher
   quizzes/questions write policies from `is_teacher()` to owner-scoped
   (`teacher_id = auth.uid()`).
+- `/home` (legacy builder) still uses off-brand raw colours and has no dark mode;
+  fold it into the design tokens or retire it in the same pass.

@@ -18,6 +18,7 @@ import {
   ClockCircleOutlined,
   FileTextOutlined,
 } from "@ant-design/icons";
+import { PageContainer } from "@/components/layout/PageContainer";
 
 const { Title, Text } = Typography;
 
@@ -112,7 +113,7 @@ export default function StudentDashboard() {
     );
 
   return (
-    <div style={{ padding: 24, maxWidth: 960, margin: "0 auto" }}>
+    <PageContainer max={960}>
       <Title level={3} style={{ marginTop: 0 }}>
         My Tests
       </Title>
@@ -145,7 +146,7 @@ export default function StudentDashboard() {
                     {r.state === "submitted" && r.is_late && <Tag color="volcano">Late</Tag>}
                     {r.exam_level && <Tag>{r.exam_level}</Tag>}
                   </Flex>
-                  <Flex gap={16} wrap style={{ marginTop: 8, color: "rgba(0,0,0,0.45)" }}>
+                  <Flex gap={16} wrap style={{ marginTop: 8 }}>
                     {r.batch_name && <Text type="secondary">{r.batch_name}</Text>}
                     <Text type="secondary">
                       <CalendarOutlined /> {fmt(r.scheduled_at)}
@@ -191,6 +192,6 @@ export default function StudentDashboard() {
           );
         })}
       </Flex>
-    </div>
+    </PageContainer>
   );
 }

@@ -31,11 +31,13 @@ export default function LoginPage() {
         throw new Error(data.error || "Failed to login");
       }
 
-      // Redirect based on selected role toggle
-      router.push(`/${role}`);
+      // Redirect by the user's ACTUAL role (from the server), falling back to the
+      // toggle only if the server didn't return one.
+      const destination = data.role === "teacher" ? "/admin" : "/student";
+      router.push(destination);
       router.refresh();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to login");
     } finally {
       setLoading(false);
     }
@@ -130,7 +132,7 @@ export default function LoginPage() {
 
         {role === "student" && (
           <p className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
-            Don't have an account?{" "}
+            Don&apos;t have an account?{" "}
             <Link href="/signup" className="font-medium text-primary hover:underline">
               Register here
             </Link>

@@ -25,6 +25,7 @@ import {
   CloseCircleTwoTone,
   MinusCircleTwoTone,
 } from "@ant-design/icons";
+import { PageContainer } from "@/components/layout/PageContainer";
 
 const { Title, Text, Paragraph } = Typography;
 const { Countdown } = Statistic;
@@ -249,7 +250,7 @@ export default function TakeTestPage({
     );
 
   const shell = (children: React.ReactNode) => (
-    <div style={{ padding: 24, maxWidth: 820, margin: "0 auto" }}>{children}</div>
+    <PageContainer max={820}>{children}</PageContainer>
   );
 
   if (ui === "upcoming" && meta)
@@ -402,7 +403,7 @@ export default function TakeTestPage({
 
   // ---------- Taking ----------
   return (
-    <div style={{ padding: 24, maxWidth: 820, margin: "0 auto" }}>
+    <PageContainer max={820}>
       <Card
         styles={{ body: { padding: 16 } }}
         style={{ position: "sticky", top: 16, zIndex: 10, marginBottom: 16 }}
@@ -472,6 +473,6 @@ export default function TakeTestPage({
           Submit test
         </Button>
       </Flex>
-    </div>
+    </PageContainer>
   );
 }

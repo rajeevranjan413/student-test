@@ -56,8 +56,11 @@ policy. Full policy map in `DATA-MODEL.md → Row-Level Security`.
   `requireUser()`, `requireTeacher()`, `requireStudent()` (throw `AuthError`
   carrying an HTTP status).
 - The single teacher account is bootstrapped from `TEACHER_EMAIL`/`TEACHER_PASSWORD`
-  on first login (`app/api/auth/login`). Students self-register with a global
-  `REGISTRATION_SECRET_PASS` (`app/api/auth/register`, service-role).
+  on first login (`app/api/auth/login`). Students self-register against the
+  **selected batch's per-batch `secret_pass`** (the enrollment code the teacher hands
+  out; `app/api/auth/register`, service-role) and are enrolled in that batch.
+  `REGISTRATION_SECRET_PASS` is an **optional global master override** only, not the
+  primary gate. See `DECISIONS.md D18`.
 
 ## 4. Route map
 
@@ -70,7 +73,7 @@ policy. Full policy map in `DATA-MODEL.md → Row-Level Security`.
 | `/admin/batches`, `/admin/batches/new` | `(protected)` | teacher | done (Tailwind) — list w/ counts |
 | `/admin/batches/[id]` | `(protected)` | teacher | done (antd) — detail: students + tests + enroll |
 | `/admin/batches/[id]/edit` | `(protected)` | teacher | done (antd) — edit form |
-| `/admin/quizzes`, `/admin/quizzes/new` | `(protected)` | teacher | done (antd) — AI wizard |
+| `/admin/quizzes`, `/admin/quizzes/new` | `(protected)` | teacher | done (antd) — AI + manual wizard |
 | `/admin/quizzes/[id]` | `(protected)` | teacher | done (antd) — test results / late-missed report |
 | `/admin/students`, `/admin/students/[id]` | `(protected)` | teacher | done (antd) — roster + student detail |
 | `/student` | `(protected)` | student | stub |
@@ -114,6 +117,19 @@ policy. Full policy map in `DATA-MODEL.md → Row-Level Security`.
 - **Do** put auth + validation in the Route Handler; **don't** trust the client.
 - **Do** build new admin UI with antd; keep existing Tailwind pages as-is (no mass
   rewrite). Don't mix the two systems inside one screen.
+- **Do** style Tailwind pages via the **design tokens** in `app/globals.css`
+  (`bg-background`, `text-foreground`, `bg-muted`, `text-muted-foreground`,
+  `border-border`, `bg-primary`/`text-primary-foreground`, `ring-ring`). The token
+  values (light+dark) are the single source of truth for colour; antd's brand colour
+  in `AntdProvider` mirrors the same `--primary`. Don't hardcode hex/`gray-*` for
+  themeable surfaces, and don't reference a token class without a matching
+  `@theme` mapping (it silently no-ops).
+- **Do** wrap antd admin/student pages in `components/layout/PageContainer` for a
+  consistent max-width + mobile-first gutter, and give antd `Table`s
+  `scroll={{ x: "max-content" }}` so they scroll (not overflow) on phones.
+- **Do** keep the top nav role-aware: `components/layout/Header.tsx` derives its
+  links from the current path (admin vs student vs minimal on `/`); the server still
+  enforces access in `middleware.ts`.
 - **Do** keep migrations additive & idempotent (`IF NOT EXISTS` / `DO` blocks);
   never rename/drop columns other code reads. Version the API JSON only on an
   unavoidable breaking change.
@@ -132,6 +148,8 @@ utils/supabase/admin.ts  service-role client (server-only, bypasses RLS)
 utils/test.ts            pure timing/scoring + deriveOutcome (shared by reporting)
 utils/students.ts        server-only email/phone lookup from auth.users (teacher)
 components/providers/    ThemeProvider (next-themes), AntdProvider (antd SSR+theme)
+components/layout/       Header (role-aware top nav), PageContainer (shared shell), ThemeToggle
+app/globals.css          design tokens (light+dark) → Tailwind @theme mappings
 middleware.ts            route gating by role
 supabase/migrations/*    schema (source of truth for DB)
 docs/DATA-MODEL.md       full schema reference

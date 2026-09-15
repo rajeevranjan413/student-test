@@ -26,6 +26,7 @@ import {
   EditOutlined,
   UserAddOutlined,
 } from "@ant-design/icons";
+import { PageContainer } from "@/components/layout/PageContainer";
 
 const { Title, Text } = Typography;
 
@@ -233,7 +234,7 @@ export default function BatchDetailPage({
 
   if (error || !data)
     return (
-      <div style={{ padding: 24 }}>
+      <PageContainer>
         <Button
           icon={<ArrowLeftOutlined />}
           onClick={() => router.push("/admin/batches")}
@@ -244,11 +245,11 @@ export default function BatchDetailPage({
         <Card>
           <Empty description={error ?? "Batch not available."} />
         </Card>
-      </div>
+      </PageContainer>
     );
 
   return (
-    <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
+    <PageContainer>
       <Button
         type="text"
         icon={<ArrowLeftOutlined />}
@@ -342,6 +343,7 @@ export default function BatchDetailPage({
           rowKey="id"
           columns={studentColumns}
           dataSource={data.students}
+          scroll={{ x: "max-content" }}
           pagination={{ pageSize: 20, hideOnSinglePage: true }}
           locale={{
             emptyText: <Empty description="No students enrolled yet." />,
@@ -354,12 +356,13 @@ export default function BatchDetailPage({
           rowKey="id"
           columns={testColumns}
           dataSource={data.tests}
+          scroll={{ x: "max-content" }}
           pagination={{ pageSize: 10, hideOnSinglePage: true }}
           locale={{
             emptyText: <Empty description="No tests created for this batch yet." />,
           }}
         />
       </Card>
-    </div>
+    </PageContainer>
   );
 }

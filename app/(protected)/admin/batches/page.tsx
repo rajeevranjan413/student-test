@@ -49,13 +49,13 @@ export default function BatchesPage() {
   };
 
   return (
-    <div className="p-8">
-      <div className="flex justify-between items-center mb-8">
+    <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Manage Batches</h1>
           <p className="text-sm text-muted-foreground mt-1">View, edit, and organize your student batches</p>
         </div>
-        <Link href="/admin/batches/new" className="flex items-center px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors shadow-sm">
+        <Link href="/admin/batches/new" className="inline-flex items-center px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors shadow-sm">
           <Plus className="h-5 w-5 mr-2" /> Create Batch
         </Link>
       </div>
@@ -69,8 +69,8 @@ export default function BatchesPage() {
           <p className="text-muted-foreground mb-4">You haven&apos;t created any batches yet.</p>
         </div>
       ) : (
-        <div className="rounded-xl border border-border overflow-hidden bg-background">
-          <table className="w-full text-left border-collapse">
+        <div className="rounded-xl border border-border overflow-x-auto bg-background">
+          <table className="w-full min-w-[720px] text-left border-collapse">
             <thead>
               <tr className="bg-muted/50 border-b border-border">
                 <th className="px-6 py-4 text-sm font-medium text-muted-foreground">Batch Name</th>

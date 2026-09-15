@@ -32,9 +32,11 @@ import {
   CheckOutlined,
   CloseOutlined,
   EditOutlined,
+  PlusOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import { EXAM_LEVELS, DIFFICULTY_COLORS } from "@/utils/constants";
+import { PageContainer } from "@/components/layout/PageContainer";
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -84,6 +86,8 @@ export default function NewTestWizard() {
   const [candidates, setCandidates] = useState<GQ[]>([]);
   const [approved, setApproved] = useState<GQ[]>([]);
   const [editing, setEditing] = useState<GQ | null>(null);
+  // Distinguishes editing an existing candidate from adding a brand-new manual one.
+  const [editingIsNew, setEditingIsNew] = useState(false);
 
   const [publishing, setPublishing] = useState(false);
 
@@ -173,9 +177,36 @@ export default function NewTestWizard() {
   const removeApproved = (uid: string) =>
     setApproved((prev) => prev.filter((c) => c.uid !== uid));
 
-  const saveEdit = (edited: GQ) => {
-    setCandidates((prev) => prev.map((c) => (c.uid === edited.uid ? edited : c)));
+  // Open the question editor with a blank MCQ so a teacher can author one by hand.
+  const blankQuestion = (): GQ => ({
+    uid: nextUid(),
+    text: "",
+    options: OPTION_KEYS.map((k) => ({ key: k, text: "" })),
+    correctOptionKey: "A",
+    explanation: "",
+  });
+  const startManualAdd = () => {
+    setEditingIsNew(true);
+    setEditing(blankQuestion());
+  };
+  const startEdit = (q: GQ) => {
+    setEditingIsNew(false);
+    setEditing(q);
+  };
+  const closeEditor = () => {
     setEditing(null);
+    setEditingIsNew(false);
+  };
+
+  const saveEdit = (edited: GQ) => {
+    if (editingIsNew) {
+      // The teacher authored this one, so it's auto-approved (no review queue).
+      setApproved((prev) => [...prev, edited]);
+      setStep(2);
+    } else {
+      setCandidates((prev) => prev.map((c) => (c.uid === edited.uid ? edited : c)));
+    }
+    closeEditor();
   };
 
   const goToConfirm = () => {
@@ -241,7 +272,7 @@ export default function NewTestWizard() {
   );
 
   return (
-    <div style={{ maxWidth: 920, margin: "0 auto", padding: 24 }}>
+    <PageContainer max={920}>
       <Title level={3}>Create AI Test</Title>
       <Steps
         current={step}
@@ -416,13 +447,24 @@ export default function NewTestWizard() {
             </Col>
           </Row>
 
+          <Divider>or</Divider>
+          <div style={{ textAlign: "center" }}>
+            <Button icon={<PlusOutlined />} onClick={startManualAdd}>
+              Add question manually
+            </Button>
+            <Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+              No image needed — type a question and its options yourself.
+            </Paragraph>
+          </div>
+
           <Divider />
           <div style={{ display: "flex", justifyContent: "space-between" }}>
             <Button onClick={() => setStep(0)}>Back</Button>
             <Space>
-              {approved.length > 0 && (
+              {(approved.length > 0 || candidates.length > 0) && (
                 <Button onClick={() => setStep(2)}>
-                  Review ({approved.length} approved)
+                  Review ({approved.length} approved
+                  {candidates.length ? `, ${candidates.length} pending` : ""})
                 </Button>
               )}
               <Button
@@ -462,6 +504,9 @@ export default function NewTestWizard() {
               <Col>
                 <Space>
                   <Button onClick={() => setStep(1)}>Generate more</Button>
+                  <Button icon={<PlusOutlined />} onClick={startManualAdd}>
+                    Add manually
+                  </Button>
                   <Button type="primary" onClick={goToConfirm}>
                     Continue
                   </Button>
@@ -474,8 +519,13 @@ export default function NewTestWizard() {
             <Col xs={24} md={approved.length ? 14 : 24}>
               <Title level={5}>To review ({candidates.length})</Title>
               {candidates.length === 0 ? (
-                <Empty description="Nothing to review — generate more">
-                  <Button onClick={() => setStep(1)}>Generate more</Button>
+                <Empty description="Nothing to review — generate or add one">
+                  <Space>
+                    <Button onClick={() => setStep(1)}>Generate more</Button>
+                    <Button icon={<PlusOutlined />} onClick={startManualAdd}>
+                      Add manually
+                    </Button>
+                  </Space>
                 </Empty>
               ) : (
                 <Space direction="vertical" style={{ width: "100%" }} size="middle">
@@ -515,7 +565,7 @@ export default function NewTestWizard() {
                         >
                           Approve
                         </Button>
-                        <Button size="small" icon={<EditOutlined />} onClick={() => setEditing(q)}>
+                        <Button size="small" icon={<EditOutlined />} onClick={() => startEdit(q)}>
                           Edit
                         </Button>
                         <Button
@@ -622,23 +672,27 @@ export default function NewTestWizard() {
         <EditQuestionModal
           key={editing.uid}
           question={editing}
-          onCancel={() => setEditing(null)}
+          isNew={editingIsNew}
+          onCancel={closeEditor}
           onSave={saveEdit}
         />
       )}
-    </div>
+    </PageContainer>
   );
 }
 
 function EditQuestionModal({
   question,
+  isNew = false,
   onCancel,
   onSave,
 }: {
   question: GQ;
+  isNew?: boolean;
   onCancel: () => void;
   onSave: (q: GQ) => void;
 }) {
+  const { message } = App.useApp();
   // Initialised directly from props; the parent remounts this via `key`.
   const [text, setText] = useState(question.text);
   const [options, setOptions] = useState<Option[]>(() =>
@@ -649,21 +703,33 @@ function EditQuestionModal({
   const [correct, setCorrect] = useState(question.correctOptionKey);
   const [explanation, setExplanation] = useState(question.explanation ?? "");
 
+  const handleOk = () => {
+    const trimmedText = text.trim();
+    const trimmedOptions = options.map((o) => ({ ...o, text: o.text.trim() }));
+    if (!trimmedText) {
+      message.error("Enter the question text.");
+      return;
+    }
+    if (trimmedOptions.some((o) => !o.text)) {
+      message.error("Fill in all four options.");
+      return;
+    }
+    onSave({
+      ...question,
+      text: trimmedText,
+      options: trimmedOptions,
+      correctOptionKey: correct,
+      explanation: explanation.trim(),
+    });
+  };
+
   return (
     <Modal
       open
-      title="Edit question"
+      title={isNew ? "Add question" : "Edit question"}
       onCancel={onCancel}
-      onOk={() => {
-        onSave({
-          ...question,
-          text: text.trim(),
-          options: options.map((o) => ({ ...o, text: o.text.trim() })),
-          correctOptionKey: correct,
-          explanation: explanation.trim(),
-        });
-      }}
-      okText="Save"
+      onOk={handleOk}
+      okText={isNew ? "Add to test" : "Save"}
       destroyOnHidden
     >
       <Space direction="vertical" style={{ width: "100%" }}>

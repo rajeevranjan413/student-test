@@ -9,7 +9,7 @@ Feature index:
 
 | # | Feature | Status |
 |---|---|---|
-| F1 | Authentication & roles | 🟡 |
+| F1 | Authentication & roles | ✅ |
 | F2 | Batch management | ✅ |
 | F3 | AI test-creation wizard | ✅ |
 | F4 | AI question generation (endpoint) | ✅ |
@@ -22,30 +22,45 @@ Feature index:
 
 ---
 
-## F1 — Authentication & roles  🟡
+## F1 — Authentication & roles  ✅
 
 **Goal:** Role-aware access; teacher (=admin) vs student, plus public pages.
 
-**UI:** `/login` (role toggle), `/signup` (student self-register w/ batch + secret
-key), logout in header. *(Tailwind — existing.)*
+**UI:** `/login` (role toggle), `/signup` (student self-register: pick a batch +
+enter that batch's enrollment code), logout in header. *(Tailwind — existing.)*
 
 **Rules:**
 - `middleware.ts` gates `/admin/*` (teacher) and `/student/*` (authed); redirects
   authed users off `/login`/`/signup`.
-- Teacher bootstrapped from `TEACHER_EMAIL`/`TEACHER_PASSWORD`; students need
-  `REGISTRATION_SECRET_PASS`. Guards in `utils/auth.ts`.
-- Public routes (`/`, `/login`, `/signup`, future `/leaderboard`) need no session.
+- Teacher bootstrapped from `TEACHER_EMAIL`/`TEACHER_PASSWORD` (auto-provisioned on
+  first login).
+- **Student self-registration is gated by the selected batch's per-batch
+  `secret_pass`** (the enrollment code the teacher hands out — see
+  `DATA-MODEL.md → batches.secret_pass`), **not** a single global secret. The
+  register route (service-role) looks up the chosen active batch and compares the
+  entered code to *that batch's* `secret_pass`. A student is enrolled in that batch
+  on success, so `batchId` is required. `REGISTRATION_SECRET_PASS` is retained only
+  as an **optional global master override** (accepts any batch) for admin
+  convenience; it is not required and, if unset, only the per-batch code works.
+- Guards in `utils/auth.ts`. Public routes (`/`, `/login`, `/signup`,
+  `/leaderboard`) need no session.
 
 **Acceptance:**
 - [x] Unauthed → admin route redirects to `/login`.
 - [x] Student cannot reach admin routes/APIs (middleware + `requireTeacher`).
 - [x] Logout clears session.
 - [x] Public leaderboard loads with no session *(F8 done)*.
+- [x] Student registers with the **batch's** enrollment code (wrong code → 400,
+      never partially creates the account); can then log in.
 
 **Code:** `middleware.ts`, `utils/auth.ts`, `app/api/auth/*`, `app/login`, `app/signup`.
+Rationale in `DECISIONS.md D18`.
 
-**Gaps:** header user menu has no real logout wiring on every page; role is
-inferred as `student` fallback — fine, but document if that changes.
+**Notes:** the earlier "global `REGISTRATION_SECRET_PASS`" design in F1/ARCHITECTURE
+contradicted the per-batch `secret_pass` in DATA-MODEL (the source of truth) and the
+signup UI's "Provided by your teacher" copy — students given a batch code got
+"Invalid secret password" and could never sign in. Reconciled here toward the
+per-batch code (D18).
 
 ---
 
@@ -89,13 +104,21 @@ Rationale in `DECISIONS.md D14`.
 1. **Setup** — title, batch, exam level, `scheduled_at` (date+time), duration,
    total required questions, optional marks scheme.
 2. **Generate** — drag-drop image upload, count-this-round, extra prompt → generate.
+   Also **Add question manually** (opens the question editor with a blank MCQ) so a
+   test can be built with no image at all.
 3. **Review** — candidate `Card`s with **Approve / Reject / Edit**; running
-   `Approved X/Y` progress; "Generate more" appends candidates, keeps approved.
+   `Approved X/Y` progress; "Generate more" appends candidates, keeps approved;
+   **Add question manually** here too (goes straight to the approved list).
 4. **Publish** — summary → **Publish** or **Save as draft**.
 `/admin/quizzes` lists tests (antd `Table`).
 
 **Rules:**
 - Only **approved** questions are persisted.
+- **Manually added questions are auto-approved** (the teacher authored them, so they
+  skip the review queue and land directly in the approved list); they can still be
+  removed there. Same `{text, options[4], correctOptionKey, explanation?, difficulty?}`
+  shape → same `POST /api/tests` contract; no schema/API change. The editor validates
+  non-empty question text + all four options before it can be saved.
 - Publish gated on `approved ≥ required`, with explicit confirm to publish fewer.
 - Correct answers shown to the teacher here only; never sent to students (F6).
 - `POST /api/tests` verifies the batch belongs to the teacher; rolls back the quiz
@@ -105,6 +128,8 @@ Rationale in `DECISIONS.md D14`.
 - [x] Upload image + count + extra prompt + level → generate.
 - [x] Approve/reject (and edit) each question individually.
 - [x] Re-generate repeatedly; approved accumulate across rounds.
+- [x] **Add a question + its 4 options manually** (correct one selected); it is
+      auto-approved into the approved list. A test can be built entirely by hand.
 - [x] Publish only when approved meets required (or admin confirms fewer).
 - [x] Published test tied to batch + schedule, status `published`.
 - [x] Correct answers not exposed to students (stored as key, filtered in F6).

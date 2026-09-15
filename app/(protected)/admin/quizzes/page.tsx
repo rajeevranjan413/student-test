@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button, Card, Table, Tag, Typography, Empty, Space } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { PlusOutlined } from "@ant-design/icons";
+import { PageContainer } from "@/components/layout/PageContainer";
 
 const { Title, Text } = Typography;
 
@@ -101,12 +102,14 @@ export default function QuizzesPage() {
   ];
 
   return (
-    <div style={{ padding: 24 }}>
+    <PageContainer>
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
           marginBottom: 24,
         }}
       >
@@ -131,6 +134,7 @@ export default function QuizzesPage() {
           loading={loading}
           columns={columns}
           dataSource={rows}
+          scroll={{ x: "max-content" }}
           pagination={{ pageSize: 10, hideOnSinglePage: true }}
           locale={{
             emptyText: (
@@ -148,6 +152,6 @@ export default function QuizzesPage() {
           }}
         />
       </Card>
-    </div>
+    </PageContainer>
   );
 }

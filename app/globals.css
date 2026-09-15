@@ -3,31 +3,78 @@
 /* 1. Tell Tailwind to use the class strategy for dark mode (required for next-themes) */
 @variant dark (&:is(.dark *));
 
-/* 2. Map your custom CSS variables to Tailwind's utility classes */
+/* 2. Map the design tokens to Tailwind utility classes.
+      Everything the Tailwind pages reference (bg-muted, text-muted-foreground,
+      border-border, text-primary-foreground, bg-card, …) is declared here so the
+      classes actually resolve instead of silently no-op'ing. */
 @theme {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
   --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius: 0.625rem;
 }
 
-/* 3. Define the actual color values for Light Mode */
+/* 3. Light mode — a calm, premium neutral (zinc) scale with the brand blue. */
 :root {
   --background: #ffffff;
   --foreground: #09090b;
+  --card: #ffffff;
+  --card-foreground: #09090b;
   --primary: #2563eb; /* Brand blue */
+  --primary-foreground: #ffffff;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #18181b;
+  --muted: #f4f4f5;
+  --muted-foreground: #71717a;
+  --accent: #f4f4f5;
+  --accent-foreground: #18181b;
+  --border: #e4e4e7;
+  --input: #e4e4e7;
+  --ring: #2563eb;
 }
 
-/* 4. Define the color values for Dark Mode */
+/* 4. Dark mode. */
 .dark {
   --background: #09090b;
-  --foreground: #ffffff;
-  --primary: #3b82f6; /* Lighter blue for dark mode visibility */
+  --foreground: #fafafa;
+  --card: #121214;
+  --card-foreground: #fafafa;
+  --primary: #3b82f6; /* Lighter blue for dark-mode visibility */
+  --primary-foreground: #ffffff;
+  --secondary: #1c1c1f;
+  --secondary-foreground: #fafafa;
+  --muted: #1c1c1f;
+  --muted-foreground: #a1a1aa;
+  --accent: #27272a;
+  --accent-foreground: #fafafa;
+  --border: #27272a;
+  --input: #27272a;
+  --ring: #3b82f6;
 }
 
-/* Apply the background and foreground colors to the body */
 @layer base {
+  * {
+    border-color: var(--border);
+  }
+
   body {
     background-color: var(--background);
     color: var(--foreground);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 }

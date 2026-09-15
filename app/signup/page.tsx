@@ -12,7 +12,7 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [secretPass, setSecretPass] = useState("");
   const [batchId, setBatchId] = useState("");
-  const [batches, setBatches] = useState<any[]>([]);
+  const [batches, setBatches] = useState<{ id: string; name: string; course?: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetchingBatches, setFetchingBatches] = useState(true);
   const [error, setError] = useState("");
@@ -60,8 +60,8 @@ export default function SignupPage() {
       if (!res.ok) throw new Error(data.error || "Registration failed");
 
       router.push("/login");
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
       setLoading(false);
     }
@@ -141,10 +141,10 @@ export default function SignupPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1.5">Platform Secret Key</label>
+            <label className="block text-sm font-medium text-foreground mb-1.5">Batch Enrollment Code</label>
             <div className="relative">
               <Key className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-              <input type="password" required value={secretPass} onChange={(e) => setSecretPass(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-transparent border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary text-foreground" placeholder="Provided by your teacher" />
+              <input type="password" required value={secretPass} onChange={(e) => setSecretPass(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-transparent border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-primary text-foreground" placeholder="Enrollment code for your batch (from your teacher)" />
             </div>
           </div>
 

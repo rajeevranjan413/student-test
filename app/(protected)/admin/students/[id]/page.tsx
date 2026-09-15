@@ -19,6 +19,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ArrowLeftOutlined } from "@ant-design/icons";
+import { PageContainer } from "@/components/layout/PageContainer";
 
 const { Title, Text } = Typography;
 
@@ -195,7 +196,7 @@ export default function StudentDetailPage({
 
   if (error || !data)
     return (
-      <div style={{ padding: 24 }}>
+      <PageContainer>
         <Button
           icon={<ArrowLeftOutlined />}
           onClick={() => router.push("/admin/students")}
@@ -206,13 +207,13 @@ export default function StudentDetailPage({
         <Card>
           <Empty description={error ?? "Student not available."} />
         </Card>
-      </div>
+      </PageContainer>
     );
 
   const { student, batches, history, summary } = data;
 
   return (
-    <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
+    <PageContainer>
       <Button
         type="text"
         icon={<ArrowLeftOutlined />}
@@ -308,12 +309,13 @@ export default function StudentDetailPage({
           rowKey="test_id"
           columns={columns}
           dataSource={history}
+          scroll={{ x: "max-content" }}
           pagination={{ pageSize: 20, hideOnSinglePage: true }}
           locale={{
             emptyText: <Empty description="No tests assigned to this student's batches yet." />,
           }}
         />
       </Card>
-    </div>
+    </PageContainer>
   );
 }

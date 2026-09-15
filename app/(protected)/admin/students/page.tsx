@@ -15,6 +15,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { SearchOutlined } from "@ant-design/icons";
+import { PageContainer } from "@/components/layout/PageContainer";
 
 const { Title, Text } = Typography;
 
@@ -137,7 +138,7 @@ export default function StudentsPage() {
   ];
 
   return (
-    <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
+    <PageContainer>
       <Title level={3} style={{ marginTop: 0 }}>
         Students
       </Title>
@@ -173,6 +174,7 @@ export default function StudentsPage() {
             loading={loading}
             columns={columns}
             dataSource={filtered}
+            scroll={{ x: "max-content" }}
             onRow={(r) => ({
               onClick: () => router.push(`/admin/students/${r.id}`),
               style: { cursor: "pointer" },
@@ -182,6 +184,6 @@ export default function StudentsPage() {
           />
         </Card>
       )}
-    </div>
+    </PageContainer>
   );
 }

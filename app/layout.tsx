@@ -4,7 +4,7 @@ import { AntdProvider } from "@/components/providers/AntdProvider";
 import "./globals.css";
 
 export const metadata = {
-  title: "EduCoach",
+  title: "NeerajCompetitiveClasses",
   description: "Coaching Center Platform",
 };
 

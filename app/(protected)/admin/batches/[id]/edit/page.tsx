@@ -14,6 +14,7 @@ import {
   Typography,
 } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
+import { PageContainer } from "@/components/layout/PageContainer";
 
 const { Title } = Typography;
 
@@ -100,7 +101,7 @@ export default function EditBatchPage({
 
   if (error)
     return (
-      <div style={{ padding: 24 }}>
+      <PageContainer max={640}>
         <Button
           icon={<ArrowLeftOutlined />}
           onClick={() => router.push("/admin/batches")}
@@ -111,11 +112,11 @@ export default function EditBatchPage({
         <Card>
           <Empty description={error} />
         </Card>
-      </div>
+      </PageContainer>
     );
 
   return (
-    <div style={{ padding: 24, maxWidth: 640, margin: "0 auto" }}>
+    <PageContainer max={640}>
       <Button
         type="text"
         icon={<ArrowLeftOutlined />}
@@ -168,6 +169,6 @@ export default function EditBatchPage({
           </Flex>
         </Form>
       </Card>
-    </div>
+    </PageContainer>
   );
 }

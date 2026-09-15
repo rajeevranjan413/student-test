@@ -22,7 +22,7 @@ export async function POST(request: Request) {
               cookiesToSet.forEach(({ name, value, options }) =>
                 cookieStore.set(name, value, options)
               );
-            } catch (error) {
+            } catch {
               // Ignore if called from a Server Component
             }
           },
@@ -69,7 +69,11 @@ export async function POST(request: Request) {
       }
 
       if (error) throw error;
-      return NextResponse.json({ user: data?.user, message: 'Teacher logged in successfully' });
+      return NextResponse.json({
+        user: data?.user,
+        role: 'teacher',
+        message: 'Teacher logged in successfully',
+      });
     }
 
     // --- 2. STANDARD STUDENT LOGIN ---
@@ -82,9 +86,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 401 });
     }
 
-    return NextResponse.json({ user: data.user });
-  } catch (error: any) {
+    // Return the user's ACTUAL role so the client redirects to the right dashboard
+    // regardless of the login-page role toggle.
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', data.user.id)
+      .single();
+
+    return NextResponse.json({ user: data.user, role: profile?.role ?? 'student' });
+  } catch (error) {
     console.error("Login Error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Login failed" },
+      { status: 500 }
+    );
   }
 }

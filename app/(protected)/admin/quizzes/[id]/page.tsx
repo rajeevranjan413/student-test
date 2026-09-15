@@ -17,6 +17,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ArrowLeftOutlined } from "@ant-design/icons";
+import { PageContainer } from "@/components/layout/PageContainer";
 
 const { Title, Text } = Typography;
 
@@ -205,7 +206,7 @@ export default function TestResultsPage({
 
   if (error || !data)
     return (
-      <div style={{ padding: 24 }}>
+      <PageContainer>
         <Button
           icon={<ArrowLeftOutlined />}
           onClick={() => router.push("/admin/quizzes")}
@@ -216,14 +217,14 @@ export default function TestResultsPage({
         <Card>
           <Empty description={error ?? "Results not available."} />
         </Card>
-      </div>
+      </PageContainer>
     );
 
   const { test, summary, rows } = data;
   const phaseTag = PHASE_TAG[test.phase] ?? PHASE_TAG.upcoming;
 
   return (
-    <div style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
+    <PageContainer>
       <Button
         type="text"
         icon={<ArrowLeftOutlined />}
@@ -307,6 +308,7 @@ export default function TestResultsPage({
           rowKey="student_id"
           columns={columns}
           dataSource={rows}
+          scroll={{ x: "max-content" }}
           pagination={{ pageSize: 20, hideOnSinglePage: true }}
           locale={{
             emptyText: (
@@ -315,6 +317,6 @@ export default function TestResultsPage({
           }}
         />
       </Card>
-    </div>
+    </PageContainer>
   );
 }
