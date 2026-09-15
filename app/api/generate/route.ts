@@ -5,7 +5,7 @@ import { AuthError, requireTeacher } from "@/utils/auth";
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 // `gemini-3.8-flash` (previous value) is not a real model id. Use a valid
 // multimodal Flash model; override via env if a newer one is preferred.
-const MODEL_ID = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+const MODEL_ID = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 
 type Option = { key: string; text: string };
 export type GeneratedQuestion = {
