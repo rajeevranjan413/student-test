@@ -6,7 +6,7 @@ export default function HomePage() {
   return (
     <main className="min-h-dvh flex flex-col items-center justify-center p-6 bg-gray-50 dark:bg-[#09090b]">
       <div className="text-center mb-12">
-        <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
           Welcome to NeerajCompetitiveClasses
         </h1>
         <p className="mt-4 text-lg text-gray-500 dark:text-gray-400">
