@@ -69,7 +69,39 @@ export default function BatchesPage() {
           <p className="text-muted-foreground mb-4">You haven&apos;t created any batches yet.</p>
         </div>
       ) : (
-        <div className="rounded-xl border border-border overflow-x-auto bg-background">
+        <>
+        {/* Mobile: stacked cards (the table would force horizontal scrolling). */}
+        <div className="grid gap-3 md:hidden">
+          {batches.map((batch) => (
+            <div key={batch.id} className="rounded-xl border border-border bg-background p-4">
+              <div className="flex items-start justify-between gap-3">
+                <Link href={`/admin/batches/${batch.id}`} className="text-base font-medium text-foreground hover:text-primary transition-colors">
+                  {batch.name}
+                </Link>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Link href={`/admin/batches/${batch.id}/edit`} className="p-2 text-muted-foreground hover:text-primary transition-colors rounded-lg hover:bg-primary/10">
+                    <Edit className="h-5 w-5" />
+                  </Link>
+                  <button onClick={() => deleteBatch(batch.id)} className="p-2 text-muted-foreground hover:text-red-500 transition-colors rounded-lg hover:bg-red-500/10">
+                    <Trash2 className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">{batch.course}</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-foreground">
+                  {batch.secret_pass}
+                </span>
+                <span className="text-muted-foreground">{batch.student_count ?? 0} students</span>
+                <span className="text-muted-foreground">·</span>
+                <span className="text-muted-foreground">{batch.test_count ?? 0} tests</span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Desktop: full table. */}
+        <div className="hidden rounded-xl border border-border overflow-x-auto bg-background md:block">
           <table className="w-full min-w-[720px] text-left border-collapse">
             <thead>
               <tr className="bg-muted/50 border-b border-border">
@@ -110,6 +142,7 @@ export default function BatchesPage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

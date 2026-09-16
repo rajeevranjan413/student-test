@@ -8,13 +8,13 @@ import {
   Flex,
   Select,
   Space,
-  Table,
   Tag,
   Typography,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { TrophyOutlined } from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
+import { ResponsiveTable } from "@/components/layout/ResponsiveTable";
 
 const { Title, Text } = Typography;
 
@@ -137,7 +137,7 @@ export default function LeaderboardPage() {
       </Text>
 
       <Card style={{ marginTop: 16 }}>
-        <Table
+        <ResponsiveTable
           rowKey="student_id"
           loading={loading}
           columns={columns}

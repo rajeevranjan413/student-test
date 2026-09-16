@@ -14,6 +14,7 @@
 | Theming | `next-themes` (class strategy); antd algorithm synced via `AntdProvider` |
 | Auth + DB | Supabase (Postgres) via `@supabase/ssr` (cookie sessions) |
 | AI | Google Gemini via `@google/generative-ai` (server-side only) |
+| PWA | `app/manifest.ts` (`/manifest.webmanifest`) + `public/sw.js` service worker → installable Android app (F11). SW never caches `/api/*`, `/auth`, or cross-origin, so data/sessions stay live. |
 
 ## 2. Layers & data flow
 
@@ -76,7 +77,7 @@ policy. Full policy map in `DATA-MODEL.md → Row-Level Security`.
 | `/admin/quizzes`, `/admin/quizzes/new` | `(protected)` | teacher | done (antd) — AI + manual wizard |
 | `/admin/quizzes/[id]` | `(protected)` | teacher | done (antd) — test results / late-missed report |
 | `/admin/students`, `/admin/students/[id]` | `(protected)` | teacher | done (antd) — roster + student detail |
-| `/student` | `(protected)` | student | stub |
+| `/student` | `(protected)` | student | done (antd) — test list; `/student/tests/[id]` take/resume/result (F6) |
 | `/teacher` | `(protected)` | teacher | retired mock → redirects to `/admin` |
 | `/home` | — | teacher | legacy AI builder (superseded by wizard) |
 | `/leaderboard` | — | public | done (antd) — ranked, batch filter |

@@ -13,10 +13,8 @@ import {
   Popconfirm,
   Row,
   Select,
-  Space,
   Spin,
   Statistic,
-  Table,
   Tag,
   Typography,
 } from "antd";
@@ -27,6 +25,7 @@ import {
   UserAddOutlined,
 } from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
+import { ResponsiveTable } from "@/components/layout/ResponsiveTable";
 
 const { Title, Text } = Typography;
 
@@ -259,7 +258,13 @@ export default function BatchDetailPage({
         Batches
       </Button>
 
-      <Flex justify="space-between" align="center" style={{ marginBottom: 16 }}>
+      <Flex
+        justify="space-between"
+        align="center"
+        gap={12}
+        wrap
+        style={{ marginBottom: 16 }}
+      >
         <Title level={3} style={{ margin: 0 }}>
           {data.name ?? "Batch"}
         </Title>
@@ -309,37 +314,34 @@ export default function BatchDetailPage({
         </Col>
       </Row>
 
-      <Card
-        title="Enrolled students"
-        style={{ marginTop: 24 }}
-        extra={
-          <Space>
-            <Select
-              showSearch
-              allowClear
-              placeholder="Add a student…"
-              style={{ minWidth: 240 }}
-              value={addId}
-              onChange={setAddId}
-              optionFilterProp="label"
-              options={data.available_students.map((s) => ({
-                value: s.id,
-                label: s.full_name ?? s.email ?? s.id,
-              }))}
-              notFoundContent="No unenrolled students"
-            />
-            <Button
-              type="primary"
-              icon={<UserAddOutlined />}
-              onClick={enroll}
-              disabled={!addId || busy}
-            >
-              Add
-            </Button>
-          </Space>
-        }
-      >
-        <Table
+      <Card title="Enrolled students" style={{ marginTop: 24 }}>
+        {/* Enroll control lives in the body (not the card `extra` header) so the
+            240px Select never overflows the title on a phone. */}
+        <Flex gap={8} wrap style={{ marginBottom: 16 }}>
+          <Select
+            showSearch
+            allowClear
+            placeholder="Add a student…"
+            style={{ flex: 1, minWidth: 200 }}
+            value={addId}
+            onChange={setAddId}
+            optionFilterProp="label"
+            options={data.available_students.map((s) => ({
+              value: s.id,
+              label: s.full_name ?? s.email ?? s.id,
+            }))}
+            notFoundContent="No unenrolled students"
+          />
+          <Button
+            type="primary"
+            icon={<UserAddOutlined />}
+            onClick={enroll}
+            disabled={!addId || busy}
+          >
+            Add
+          </Button>
+        </Flex>
+        <ResponsiveTable
           rowKey="id"
           columns={studentColumns}
           dataSource={data.students}
@@ -352,7 +354,7 @@ export default function BatchDetailPage({
       </Card>
 
       <Card title="Tests" style={{ marginTop: 24 }}>
-        <Table
+        <ResponsiveTable
           rowKey="id"
           columns={testColumns}
           dataSource={data.tests}

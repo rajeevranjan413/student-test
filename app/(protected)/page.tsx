@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { GraduationCap, Presentation, Trophy } from "lucide-react";
+import { InstallAppButton } from "@/components/pwa/InstallApp";
 
 export default function HomePage() {
   return (
-    <main className="flex-1 flex flex-col items-center justify-center p-6 bg-gray-50 dark:bg-[#09090b]">
+    <main className="min-h-dvh flex flex-col items-center justify-center p-6 bg-gray-50 dark:bg-[#09090b]">
       <div className="text-center mb-12">
         <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
           Welcome to NeerajCompetitiveClasses
@@ -49,6 +50,9 @@ export default function HomePage() {
       >
         <Trophy className="h-4 w-4" /> View public leaderboard
       </Link>
+
+      {/* Install as an Android app (PWA). See docs/FEATURES.md → F11. */}
+      <InstallAppButton />
     </main>
   );
 }

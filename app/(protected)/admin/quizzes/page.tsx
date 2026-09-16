@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Card, Table, Tag, Typography, Empty, Space } from "antd";
+import { Button, Card, Tag, Typography, Empty, Space } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { PlusOutlined } from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
+import { ResponsiveTable } from "@/components/layout/ResponsiveTable";
 
 const { Title, Text } = Typography;
 
@@ -129,7 +130,7 @@ export default function QuizzesPage() {
       </div>
 
       <Card>
-        <Table
+        <ResponsiveTable
           rowKey="id"
           loading={loading}
           columns={columns}

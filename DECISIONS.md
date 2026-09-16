@@ -278,6 +278,29 @@ code):
 - No schema change (DATA-MODEL already had `batches.secret_pass`). Docs updated
   first: FEATURES F1 (now ✅), ARCHITECTURE §3, `.env.example`.
 
+## D19 — Reliable logout so one device can switch accounts (spec §F1) — DONE
+**Bug:** on a single device you couldn't cleanly log out and sign in as the other
+role (teacher ↔ student). `POST /api/auth/logout` called `supabase.auth.signOut()`
+with the **default `scope:'global'`**, which does a token-revoke round-trip to
+Supabase; on any non-401/404 error it threw and the route returned **500**.
+`AppShell`'s Sign-out did `await fetch(...)` but ignored the result and then
+**soft-navigated** (`router.push` + `refresh`). If the cookies hadn't cleared,
+`middleware.ts` still saw a valid user and **redirected /login back to the old
+dashboard** — Sign-out looked like it did nothing, and the switch was impossible.
+
+**Resolution — make logout always end in a signed-out browser:**
+- Logout route now uses **`scope:'local'`** (this device only; never revokes the
+  user's other devices, doesn't hinge on the global-revoke call), **swallows any
+  `signOut` error**, and as a safety net **explicitly expires every Supabase auth
+  cookie** (`sb-*…-auth-token`, incl. chunked `.0`/`.1`) via the cookie store, so
+  the session is gone even if the SSR client couldn't clear it. Always returns 200.
+- `AppShell.logout` switched `push`→**`router.replace('/login')`** (+ `refresh`) so
+  Back can't return to a signed-out screen and the RSC cache is invalidated; the
+  now-reliable cookie clearing means a soft nav is sufficient (this Next lints
+  against `window.location.assign` for internal nav, so no hard reload).
+- No schema/API-contract change; logout response shape unchanged (additive-safe).
+  Docs updated first: FEATURES F1 Notes.
+
 ## Open items (next passes)
 - When the legacy `/home` browser-write builder is retired, tighten the teacher
   quizzes/questions write policies from `is_teacher()` to owner-scoped

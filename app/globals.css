@@ -70,11 +70,56 @@
     border-color: var(--border);
   }
 
+  html {
+    /* App-like: kill the blue tap flash and text-select long-press on Android. */
+    -webkit-tap-highlight-color: transparent;
+  }
+
   body {
     background-color: var(--background);
     color: var(--foreground);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    /* Stop the whole-page rubber-band / pull-to-refresh so it reads as a native app. */
+    overscroll-behavior-y: none;
+  }
+}
+
+/* 5. Android-app-shell polish (used by AppBar / BottomNav — see F11). */
+
+/* Tappable elements: remove the flash and add a subtle press-down, like a
+   Material ripple's settle. Applied via the `.tap` utility class. */
+.tap {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+  transition: transform 0.12s ease, background-color 0.15s ease;
+}
+.tap:active {
+  transform: scale(0.94);
+}
+
+/* Route/page enter transition — a quick fade + rise, replayed on each nav. */
+@keyframes route-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.route-enter {
+  animation: route-enter 0.22s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-enter {
+    animation: none;
+  }
+  .tap:active {
+    transform: none;
   }
 }

@@ -13,13 +13,13 @@ import {
   Space,
   Spin,
   Statistic,
-  Table,
   Tag,
   Typography,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
+import { ResponsiveTable } from "@/components/layout/ResponsiveTable";
 
 const { Title, Text } = Typography;
 
@@ -305,7 +305,7 @@ export default function StudentDetailPage({
       </Row>
 
       <Card title="Test history" style={{ marginTop: 24 }}>
-        <Table
+        <ResponsiveTable
           rowKey="test_id"
           columns={columns}
           dataSource={history}

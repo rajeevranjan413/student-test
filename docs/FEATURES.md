@@ -19,6 +19,7 @@ Feature index:
 | F8 | Public leaderboard | ✅ |
 | F9 | Admin dashboard | ✅ |
 | F10 | RLS & data confidentiality | ✅ |
+| F11 | Installable Android app (PWA) | ✅ |
 
 ---
 
@@ -61,6 +62,13 @@ contradicted the per-batch `secret_pass` in DATA-MODEL (the source of truth) and
 signup UI's "Provided by your teacher" copy — students given a batch code got
 "Invalid secret password" and could never sign in. Reconciled here toward the
 per-batch code (D18).
+
+Logout hardened so one device can switch accounts (teacher ↔ student) — D19: the
+route now signs out with `scope:'local'`, swallows revoke errors, and explicitly
+expires the `sb-*-auth-token` cookies (guaranteed signed-out browser, always 200);
+the Sign-out control `router.replace('/login')` + `refresh` instead of a soft push.
+Previously a `signOut()` 500 left cookies intact and `middleware.ts` bounced /login
+back to the old dashboard, so the switch was impossible.
 
 ---
 
@@ -329,6 +337,72 @@ query can't bypass it — above all, so a student's session can't read
 **Verify against a live DB (needs your own keys):** signed in as a student, hit
 `/rest/v1/questions?select=correct_answer` → permission error; `POST
 /rest/v1/quiz_attempts` → blocked; normal take/submit via the app still scores.
+
+---
+
+## F11 — Installable Android app (PWA)  ✅
+
+**Goal:** Let students/teachers "download" and run the web app as an Android app
+without shipping a native binary. The app is a **Progressive Web App**: Chrome on
+Android offers **Install app / Add to Home Screen**, and it then launches
+full-screen (standalone) from the home screen like a native app.
+
+**UI:** A **Get / Install Android app** button on the home page (`/`, the role
+picker). When the browser reports the app is installable it triggers the native
+install prompt directly; otherwise it expands short step-by-step instructions
+(with a separate iOS Safari "Add to Home Screen" hint). Once installed (running in
+standalone display mode) the button becomes an "App installed" confirmation.
+
+**Rules:**
+- Manifest served from `app/manifest.ts` (`/manifest.webmanifest`): name, icons
+  (192 + 512, plus a 512 `maskable`), `display: standalone`, `start_url: /`,
+  `theme_color #4f46e5`, `background_color #09090b`.
+- Service worker `public/sw.js` provides the fetch handler Chrome requires for
+  installability + a small app-shell cache. It **never** caches `/api/*`, `/auth`,
+  or cross-origin traffic, so Supabase data and sessions are always live — this
+  keeps F10 (answer secrecy / RLS) intact; nothing security-critical is cached.
+- No native/APK toolchain: install is via the browser's PWA flow. A native
+  wrapper (TWA via Bubblewrap, or Capacitor) is a future option and would reuse
+  this same manifest + hosted HTTPS origin.
+
+**App-shell UI (Android-native navigation):** so the installed PWA reads as a
+native Android app, the whole app runs inside an app shell rendered once in the
+root layout (persists across navigations, no flash):
+- **Top app bar** (`AppBar`) — 56dp Material bar with a **back arrow** on
+  sub-screens (history-aware, falls back to the section home), a contextual
+  **title** derived from the route, and an **overflow menu** (⋮) holding the
+  theme toggle + Sign out. Honours `env(safe-area-inset-top)` for the status bar.
+- **Bottom navigation** (`BottomNav`) — role-aware top-level tabs (admin: Home /
+  Batches / Tests / Students; student: Tests / Ranks) with icon + label and an
+  active pill tint. Mobile-only (`md:hidden`); desktop keeps inline tabs in the
+  app bar. Honours `env(safe-area-inset-bottom)`; hidden during a test attempt
+  (immersive) to avoid mis-taps.
+- **Feel:** tap-highlight removed, press-down (`.tap` active scale), page
+  enter transition (`route-enter`), disabled page rubber-band — all reduced-motion
+  aware. The old web-style hamburger `TopNav` (`components/layout/Header.tsx`) was
+  removed in favour of this shell.
+- Chrome self-hides on `/`, `/login`, `/signup`, `/home` (no `section`).
+
+**Acceptance:**
+- [x] `/manifest.webmanifest` returns a valid manifest with 192 + 512 icons.
+- [x] Service worker registers on load; app is flagged installable in Chrome.
+- [x] Home page shows an install control that fires the native prompt when
+      available and instructions otherwise; standalone shows "App installed".
+- [x] No API/auth responses are cached by the service worker.
+- [x] Bottom nav + top app bar render on admin/student/leaderboard; back arrow on
+      sub-screens; nav hidden on `/`, auth pages, and during a test attempt.
+- [x] `tsc --noEmit`, lint, and `next build` pass.
+
+**Code:** `app/manifest.ts`, `public/sw.js`, `public/icon-192.png`,
+`public/icon-512.png`, `components/pwa/InstallApp.tsx` (`PwaRegister` +
+`InstallAppButton`), `components/layout/appNav.ts` (nav config/titles),
+`components/layout/AppShell.tsx` (`AppBar` / `BottomNav` / `RouteTransition`),
+app-shell CSS in `app/globals.css`; wired in `app/layout.tsx`,
+`app/(protected)/layout.tsx`, and `app/(protected)/page.tsx`.
+
+**Verify:** `curl` the dev server for `/manifest.webmanifest` and `/sw.js` (200);
+in Chrome DevTools → Application → Manifest shows "installable", and mobile Chrome
+shows the install prompt. `npx next build` succeeds.
 
 ---
 

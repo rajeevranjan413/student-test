@@ -9,13 +9,13 @@ import {
   Input,
   Select,
   Space,
-  Table,
   Tag,
   Typography,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { SearchOutlined } from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
+import { ResponsiveTable } from "@/components/layout/ResponsiveTable";
 
 const { Title, Text } = Typography;
 
@@ -169,7 +169,7 @@ export default function StudentsPage() {
         </Card>
       ) : (
         <Card>
-          <Table
+          <ResponsiveTable
             rowKey="id"
             loading={loading}
             columns={columns}

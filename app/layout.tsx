@@ -1,11 +1,28 @@
 
+import type { Viewport } from "next";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { AntdProvider } from "@/components/providers/AntdProvider";
+import { PwaRegister } from "@/components/pwa/InstallApp";
+import { AppBar, BottomNav, RouteTransition } from "@/components/layout/AppShell";
 import "./globals.css";
 
 export const metadata = {
   title: "NeerajCompetitiveClasses",
   description: "Coaching Center Platform",
+  applicationName: "NeerajClasses",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "NeerajClasses",
+  },
+  icons: {
+    icon: "/icon-192.png",
+    apple: "/icon-192.png",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#4f46e5",
 };
 
 export default function RootLayout({
@@ -22,8 +39,15 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {/* We removed the DashboardLayout wrapper here so the home page can be full screen */}
-          <AntdProvider>{children}</AntdProvider>
+          {/* Android-style app shell: persistent top app bar + bottom nav (F11).
+              Both self-hide on routes without chrome (/, /login, /signup, /home). */}
+          <AntdProvider>
+            <AppBar />
+            <RouteTransition>{children}</RouteTransition>
+            <BottomNav />
+          </AntdProvider>
+          {/* Registers the service worker + captures the PWA install prompt (F11). */}
+          <PwaRegister />
         </ThemeProvider>
       </body>
     </html>

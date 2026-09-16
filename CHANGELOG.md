@@ -1,5 +1,94 @@
 # CHANGELOG
 
+## 2026-09-16 — Android-native app shell: bottom nav + top app bar (F11)
+
+Follow-up to the PWA work: the whole app now runs inside an Android-style app
+shell so the installed app feels native rather than like a website.
+
+**Added**
+- `components/layout/appNav.ts` — single source of truth for nav tabs, route
+  titles, section detection, and back/immersive rules.
+- `components/layout/AppShell.tsx` — `AppBar` (Material top app bar: back arrow on
+  sub-screens, contextual title, ⋮ overflow menu with theme toggle + Sign out),
+  `BottomNav` (role-aware bottom navigation, mobile-only, safe-area aware, hidden
+  during a test attempt), and `RouteTransition` (page enter animation).
+- App-shell CSS in `app/globals.css`: `.tap` press feedback, `route-enter`
+  keyframes, tap-highlight removal, disabled page rubber-band — reduced-motion aware.
+
+**Changed**
+- `app/layout.tsx` — renders the shell once (persists across navigations, no flash),
+  covering admin, student, and the public leaderboard.
+- `app/(protected)/layout.tsx` — dropped the old top nav; the shell lives in root.
+- `app/(protected)/page.tsx` — role picker self-centres (`min-h-dvh`) now that the
+  bar is external.
+
+**Removed**
+- `components/layout/Header.tsx` (web-style hamburger `TopNav`) — replaced by the
+  app shell.
+
+**Verified**
+- `npx tsc --noEmit` clean; `npx eslint` clean on changed files; `npx next build`
+  passes. Live click-through needs Supabase keys (none in repo).
+
+## 2026-09-16 — Installable Android app (PWA) + home-page install link (F11)
+
+The web app is now installable as an Android app via the browser's PWA flow —
+no native binary. Android Chrome offers **Install app / Add to Home Screen**, and
+it launches full-screen (standalone) like a native app. A **Get / Install Android
+app** button was added to the home page: it fires the native install prompt when
+the browser reports the app is installable, shows short Android/iOS steps
+otherwise, and confirms "App installed" once running standalone.
+
+**Added**
+- `app/manifest.ts` — web app manifest (`/manifest.webmanifest`): name, 192/512
+  icons + a 512 maskable, `display: standalone`, `theme_color #4f46e5`.
+- `public/sw.js` — dependency-free service worker: fetch handler required for
+  installability + a small app-shell cache. **Never** caches `/api/*`, `/auth`, or
+  cross-origin, so Supabase data/sessions stay live and F10 answer-secrecy holds.
+- `public/icon-192.png`, `public/icon-512.png` — generated graduation-cap icons.
+- `components/pwa/InstallApp.tsx` — `PwaRegister` (registers SW + captures the
+  install prompt app-wide) and `InstallAppButton` (home-page control).
+
+**Changed**
+- `app/layout.tsx` — mounts `<PwaRegister />`; adds PWA metadata (apple-web-app,
+  icons) and `viewport.themeColor`.
+- `app/(protected)/page.tsx` — renders `<InstallAppButton />` under the role picker.
+
+**Docs**
+- `docs/FEATURES.md` F11 entry + index; `docs/ARCHITECTURE.md` PWA row.
+
+**Verified**
+- `npx tsc --noEmit` clean; `npx next build` passes; `/manifest.webmanifest` and
+  `/sw.js` serve 200; icons render.
+
+## 2026-09-16 — Mobile responsiveness: card layout for table views
+
+Phones previously had to scroll table views sideways to reach later columns. Tables
+now render as a stacked card list below the `md` breakpoint (768px) while keeping the
+full AntD table on desktop. No API/schema change; behaviour on desktop is unchanged.
+
+**Added**
+- `components/layout/ResponsiveTable.tsx` — drop-in wrapper for AntD `<Table>`. On
+  desktop it is a pass-through (all props forwarded, sorting/filtering/pagination
+  intact); below the breakpoint it renders each row as a `<Card>` (first column as the
+  heading, remaining columns as label → value rows) from the *same* `columns`/
+  `dataSource`. Preserves `onRow` click-through, `loading`, and `locale.emptyText`.
+  SSR-safe: first render is the desktop table, then it switches after mount (no
+  hydration mismatch).
+
+**Changed**
+- Swapped `<Table>` → `<ResponsiveTable>` in the six AntD table screens: admin
+  students list + detail, tests list + results, batch detail (students & tests),
+  and the public leaderboard.
+- `app/(protected)/admin/batches/page.tsx` — the raw HTML table now has a parallel
+  mobile card list (`md:hidden`); the table shows from `md` up.
+- `app/(protected)/admin/batches/[id]/page.tsx` — moved the "add student" Select+Add
+  out of the card `extra` header (a fixed 240px control that overflowed the title on
+  phones) into a wrapping flex in the card body; the batch title row now wraps.
+
+Verified: `npx tsc --noEmit` clean · `npx eslint` on changed files clean ·
+`npx next build` passes.
+
 ## 2026-09-15 — F3: manual question entry in the test wizard
 
 Admins can now author a question + its options by hand, alongside (or instead of)
