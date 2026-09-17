@@ -3,19 +3,26 @@
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  App,
   Button,
   Card,
   Col,
   Empty,
   Flex,
+  Popconfirm,
   Row,
+  Space,
   Spin,
   Statistic,
   Tag,
   Typography,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { ArrowLeftOutlined } from "@ant-design/icons";
+import {
+  ArrowLeftOutlined,
+  DeleteOutlined,
+  EditOutlined,
+} from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { ResponsiveTable } from "@/components/layout/ResponsiveTable";
 
@@ -47,7 +54,6 @@ type ResultsPayload = {
   test: {
     id: string;
     title: string;
-    exam_level: string | null;
     batch_name: string | null;
     scheduled_at: string | null;
     duration_minutes: number;
@@ -103,9 +109,30 @@ export default function TestResultsPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
+  const { message } = App.useApp();
   const [data, setData] = useState<ResultsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/tests/${id}`, { method: "DELETE" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Failed to delete test");
+      message.success(
+        body.archived
+          ? "Test archived — it had attempts, so results were kept."
+          : "Test deleted."
+      );
+      router.push("/admin/quizzes");
+      router.refresh();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : "Failed to delete test");
+      setDeleting(false);
+    }
+  };
 
   useEffect(() => {
     (async () => {
@@ -234,12 +261,32 @@ export default function TestResultsPage({
         Tests
       </Button>
 
-      <Flex align="center" gap={8} wrap style={{ marginBottom: 4 }}>
-        <Title level={3} style={{ margin: 0 }}>
-          {test.title}
-        </Title>
-        <Tag color={phaseTag.color}>{phaseTag.label}</Tag>
-        {test.exam_level && <Tag>{test.exam_level}</Tag>}
+      <Flex align="center" justify="space-between" gap={12} wrap style={{ marginBottom: 4 }}>
+        <Flex align="center" gap={8} wrap style={{ minWidth: 0 }}>
+          <Title level={3} style={{ margin: 0 }}>
+            {test.title}
+          </Title>
+          <Tag color={phaseTag.color}>{phaseTag.label}</Tag>
+        </Flex>
+        <Space wrap>
+          <Button
+            icon={<EditOutlined />}
+            onClick={() => router.push(`/admin/quizzes/${id}/edit`)}
+          >
+            Edit
+          </Button>
+          <Popconfirm
+            title="Delete this test?"
+            description="Tests with student attempts are archived (results kept); others are permanently removed."
+            okText="Delete"
+            okButtonProps={{ danger: true, loading: deleting }}
+            onConfirm={handleDelete}
+          >
+            <Button danger icon={<DeleteOutlined />} loading={deleting}>
+              Delete
+            </Button>
+          </Popconfirm>
+        </Space>
       </Flex>
       <Text type="secondary">
         {test.batch_name ?? "—"} · Scheduled {fmt(test.scheduled_at)} ·{" "}

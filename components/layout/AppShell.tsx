@@ -3,8 +3,11 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowLeft, GraduationCap, LogOut, MoreVertical } from "lucide-react";
+import { ArrowLeft, LogOut, MoreVertical } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
+import { NCLogo } from "./NCLogo";
+import { useBatches } from "@/components/providers/BatchProvider";
+import { formatBatchTiming } from "@/utils/batch";
 import {
   homeFor,
   isImmersive,
@@ -39,9 +42,26 @@ export function AppBar() {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [loggingOut, setLoggingOut] = React.useState(false);
 
+  // The app bar lives in the root layout and persists across soft navigations, so
+  // its local state survives a sign-out → sign-in round trip. Reset the transient
+  // bits when the route changes (render-phase reset, per the React docs) — otherwise
+  // the overflow menu stays open showing a stale, disabled "Signing out…" button
+  // after the next login.
+  const [lastPath, setLastPath] = React.useState(pathname);
+  if (pathname !== lastPath) {
+    setLastPath(pathname);
+    setMenuOpen(false);
+    setLoggingOut(false);
+  }
+
   const section = sectionFor(pathname);
   const tabs = tabsFor(pathname);
   const authed = pathname.startsWith("/admin") || pathname.startsWith("/student");
+
+  const { batches, activeBatchId, setActiveBatchId } = useBatches();
+  // Only students with more than one batch get a switcher (nothing to switch
+  // between otherwise). It filters the student's test list by batch.
+  const showBatchSwitcher = section === "student" && batches.length > 1;
 
   if (section === "none") return null; // no chrome on /, /login, /signup, /home
 
@@ -80,7 +100,7 @@ export function AppBar() {
           </button>
         ) : (
           <span className="flex h-11 w-11 items-center justify-center text-primary">
-            <GraduationCap className="h-6 w-6" />
+            <NCLogo className="h-7 w-7" />
           </span>
         )}
 
@@ -112,6 +132,27 @@ export function AppBar() {
         </nav>
 
         {/* Trailing actions */}
+        {showBatchSwitcher && (
+          <label className="mr-1 flex items-center" title="Switch batch">
+            <span className="sr-only">Switch batch</span>
+            <select
+              value={activeBatchId ?? ""}
+              onChange={(e) => setActiveBatchId(e.target.value || null)}
+              className="max-w-[9rem] truncate rounded-full border border-border bg-muted px-3 py-1.5 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:max-w-[12rem]"
+            >
+              <option value="">All batches</option>
+              {batches.map((b) => {
+                const timing = formatBatchTiming(b.start_time, b.end_time);
+                return (
+                  <option key={b.id} value={b.id}>
+                    {b.name ?? "Batch"}
+                    {timing ? ` (${timing})` : ""}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+        )}
         <ThemeToggle />
 
         {authed && (

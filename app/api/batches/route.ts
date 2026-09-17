@@ -10,7 +10,7 @@ export async function GET(request: Request) {
 
     let query = supabase
       .from("batches")
-      .select("id, name, course, description, exam_level, secret_pass, status, created_at")
+      .select("id, name, start_time, end_time, description, exam_level, secret_pass, status, created_at")
       .order("created_at", { ascending: false });
 
     if (!includeArchived) query = query.eq("status", "active");
@@ -63,12 +63,12 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const { supabase, user } = await requireTeacher();
-    const { name, course, secret_pass, description, exam_level } =
+    const { name, start_time, end_time, secret_pass, description, exam_level } =
       await request.json();
 
-    if (!name || !course || !secret_pass) {
+    if (!name || !start_time || !end_time || !secret_pass) {
       return NextResponse.json(
-        { error: "name, course, and secret_pass are required" },
+        { error: "name, start_time, end_time, and secret_pass are required" },
         { status: 400 }
       );
     }
@@ -77,7 +77,8 @@ export async function POST(request: Request) {
       .from("batches")
       .insert({
         name,
-        course,
+        start_time,
+        end_time,
         secret_pass,
         description: description ?? null,
         exam_level: exam_level ?? null,

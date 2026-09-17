@@ -19,7 +19,6 @@ import {
 export type StudentTest = {
   id: string;
   title: string;
-  exam_level: string | null;
   status: "draft" | "published" | "closed";
   is_published: boolean;
   scheduled_at: string | null;
@@ -55,7 +54,7 @@ export type PublicQuestion = {
 };
 
 const TEST_COLUMNS =
-  "id, title, exam_level, status, is_published, scheduled_at, duration_minutes, marks_per_question, negative_marking, passing_marks, total_questions, batch_id, batches(name)";
+  "id, title, status, is_published, scheduled_at, duration_minutes, marks_per_question, negative_marking, passing_marks, total_questions, batch_id, batches(name)";
 
 function flattenBatchName(batches: unknown): string | null {
   if (Array.isArray(batches)) return batches[0]?.name ?? null;
@@ -98,7 +97,6 @@ export async function requireStudentTest(
   const test: StudentTest = {
     id: data.id,
     title: data.title,
-    exam_level: data.exam_level ?? null,
     status: data.status,
     is_published: data.is_published ?? false,
     scheduled_at: data.scheduled_at ?? null,

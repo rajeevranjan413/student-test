@@ -39,6 +39,8 @@ export async function middleware(request: NextRequest) {
   const isAdminRoute = path.startsWith('/admin');
   const isStudentRoute = path.startsWith('/student');
   const isAuthRoute = path.startsWith('/login') || path.startsWith('/signup');
+  // The `/` landing page is a role chooser meant for signed-out visitors.
+  const isRootRoute = path === '/';
 
   // 1. Redirect completely unauthenticated users to login
   if (!user && (isAdminRoute || isStudentRoute)) {
@@ -47,9 +49,10 @@ export async function middleware(request: NextRequest) {
 
   // 2. Handle Role-Based Access for Authenticated Users
   if (user) {
-    // We only query the database for the user's role if they are hitting an admin route or login/signup. 
-    // This saves database reads when students are just browsing student routes.
-    if (isAdminRoute || isAuthRoute) {
+    // We only query the database for the user's role if they are hitting an admin route,
+    // login/signup, or the `/` landing page. This saves database reads when students are
+    // just browsing student routes.
+    if (isAdminRoute || isAuthRoute || isRootRoute) {
       const { data: profile } = await supabase
         .from('profiles')
         .select('role')
@@ -63,8 +66,9 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL('/student', request.url));
       }
 
-      // If they are already logged in and try to visit /login or /signup, send them to their dashboard
-      if (isAuthRoute) {
+      // If they already have a session, skip the sign-in/role-chooser screens
+      // (`/login`, `/signup`, and the `/` landing page) and send them to their home page.
+      if (isAuthRoute || isRootRoute) {
         if (userRole === 'teacher') {
           return NextResponse.redirect(new URL('/admin', request.url));
         } else {

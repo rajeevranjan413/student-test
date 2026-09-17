@@ -29,7 +29,7 @@ export async function GET() {
     const { data: quizzes, error: qErr } = await supabase
       .from("quizzes")
       .select(
-        "id, title, exam_level, scheduled_at, duration_minutes, total_questions, marks_per_question, negative_marking, passing_marks, status, is_published, batch_id, batches(name), questions(count)"
+        "id, title, scheduled_at, duration_minutes, total_questions, marks_per_question, negative_marking, passing_marks, status, is_published, batch_id, batches(name), questions(count)"
       )
       .in("batch_id", batchIds)
       .or("status.eq.published,status.eq.closed,is_published.eq.true")
@@ -53,7 +53,11 @@ export async function GET() {
       const counts = q.questions as { count?: number }[] | null;
 
       const phase = q.scheduled_at
-        ? computePhase(computeTiming(q.scheduled_at, q.duration_minutes ?? 30), now)
+        ? computePhase(
+            computeTiming(q.scheduled_at, q.duration_minutes ?? 30),
+            now,
+            q.status
+          )
         : "upcoming";
 
       const attempt = byQuiz.get(q.id);
@@ -66,7 +70,7 @@ export async function GET() {
       return {
         id: q.id,
         title: q.title,
-        exam_level: q.exam_level ?? null,
+        batch_id: q.batch_id ?? null,
         batch_name: batchName ?? null,
         scheduled_at: q.scheduled_at ?? null,
         duration_minutes: q.duration_minutes ?? 30,

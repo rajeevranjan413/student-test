@@ -107,7 +107,6 @@ export async function POST(req: NextRequest) {
       ...formData.getAll("image"),
     ].filter((v): v is File => v instanceof File && v.size > 0);
 
-    const examLevel = (formData.get("examLevel") as string) || "";
     const count = Math.min(
       Math.max(parseInt((formData.get("count") as string) || "5", 10) || 5, 1),
       20
@@ -129,9 +128,7 @@ export async function POST(req: NextRequest) {
 
     const instruction = `You are an exam question setter for competitive exams.
 Read the concept(s) shown in the attached image(s) — handwritten or printed — and
-generate exactly ${count} multiple-choice questions${
-      examLevel ? ` for the "${examLevel}" level` : ""
-    }.
+generate exactly ${count} multiple-choice questions.
 ${extraPrompt ? `Additional instructions from the teacher: ${extraPrompt}\n` : ""}
 Rules:
 - Each question must have exactly 4 options keyed "A","B","C","D".

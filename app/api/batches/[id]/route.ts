@@ -96,12 +96,12 @@ export async function PUT(
   try {
     const { supabase } = await requireTeacher();
     const { id } = await params;
-    const { name, course, secret_pass, description, exam_level } =
+    const { name, start_time, end_time, secret_pass, description, exam_level } =
       await request.json();
 
     const { data, error } = await supabase
       .from("batches")
-      .update({ name, course, secret_pass, description, exam_level })
+      .update({ name, start_time, end_time, secret_pass, description, exam_level })
       .eq("id", id)
       .select()
       .single();

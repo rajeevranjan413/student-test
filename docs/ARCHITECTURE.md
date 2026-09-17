@@ -13,6 +13,7 @@
 | Icons | `lucide-react` (Tailwind pages), `@ant-design/icons` (antd pages) |
 | Theming | `next-themes` (class strategy); antd algorithm synced via `AntdProvider` |
 | Auth + DB | Supabase (Postgres) via `@supabase/ssr` (cookie sessions) |
+| Files | Supabase **Storage** (private `study-material` bucket) for shared PDFs; accessed server-side via the service role + short-lived signed URLs (F13) |
 | AI | Google Gemini via `@google/generative-ai` (server-side only) |
 | PWA | `app/manifest.ts` (`/manifest.webmanifest`) + `public/sw.js` service worker → installable Android app (F11). SW never caches `/api/*`, `/auth`, or cross-origin, so data/sessions stay live. |
 
@@ -52,32 +53,37 @@ policy. Full policy map in `DATA-MODEL.md → Row-Level Security`.
 
 - Roles enum: `('student' | 'teacher')`. **`teacher` == the spec's `admin`.**
 - Session: Supabase cookies. `middleware.ts` gates `/admin/*` (teacher only) and
-  `/student/*` (any authed user), and bounces authed users away from `/login`/`/signup`.
+  `/student/*` (any authed user), and bounces authed users away from `/login`/`/signup`
+  **and the `/` landing page** to their home page (teacher → `/admin`, student → `/student`).
 - Server guards: `utils/auth.ts` → `getSupabaseServer()`, `getAuthedUser()`,
   `requireUser()`, `requireTeacher()`, `requireStudent()` (throw `AuthError`
   carrying an HTTP status).
 - The single teacher account is bootstrapped from `TEACHER_EMAIL`/`TEACHER_PASSWORD`
-  on first login (`app/api/auth/login`). Students self-register against the
-  **selected batch's per-batch `secret_pass`** (the enrollment code the teacher hands
-  out; `app/api/auth/register`, service-role) and are enrolled in that batch.
-  `REGISTRATION_SECRET_PASS` is an **optional global master override** only, not the
-  primary gate. See `DECISIONS.md D18`.
+  on first login (`app/api/auth/login`). Students self-register by selecting **one or
+  more** batches and entering the per-batch `secret_pass` for **any one** of them
+  (`app/api/auth/register`, service-role); a matching code enrolls them in **all**
+  selected batches. `REGISTRATION_SECRET_PASS` is an **optional global master
+  override** only, not the primary gate. See `DECISIONS.md D18`, `D23`.
 
 ## 4. Route map
 
 ### Pages
 | Route | Group | Role | State |
 |---|---|---|---|
-| `/` | — landing | public-ish | done (Tailwind) |
-| `/login`, `/signup` | — | public | done (Tailwind) |
+| `/` | — public coaching-center home page (hero, stats, features, programs, gallery, CTA, footer; Student/Teacher sign-in kept as small buttons; authed users redirected to their home) | public-ish | done (Tailwind) |
+| `/login` (chooser), `/login/student`, `/login/teacher`, `/signup` | — | public | done (Tailwind) |
 | `/admin` | `(protected)` | teacher | done (antd) — live dashboard (counts + recent) |
 | `/admin/batches`, `/admin/batches/new` | `(protected)` | teacher | done (Tailwind) — list w/ counts |
 | `/admin/batches/[id]` | `(protected)` | teacher | done (antd) — detail: students + tests + enroll |
 | `/admin/batches/[id]/edit` | `(protected)` | teacher | done (antd) — edit form |
 | `/admin/quizzes`, `/admin/quizzes/new` | `(protected)` | teacher | done (antd) — AI + manual wizard |
 | `/admin/quizzes/[id]` | `(protected)` | teacher | done (antd) — test results / late-missed report |
+| `/admin/quizzes/[id]/edit` | `(protected)` | teacher | done (antd) — edit settings + questions (F3) |
 | `/admin/students`, `/admin/students/[id]` | `(protected)` | teacher | done (antd) — roster + student detail |
-| `/student` | `(protected)` | student | done (antd) — test list; `/student/tests/[id]` take/resume/result (F6) |
+| `/student` | `(protected)` | student | done (antd) — **home** hub: banner slider + section cards (F12) |
+| `/student/tests` | `(protected)` | student | done (antd) — test list; `/student/tests/[id]` take/resume/result (F6) |
+| `/admin/study-material` | `(protected)` | teacher | done (antd) — upload/list/delete PDF notes per batch (F13) |
+| `/student/study-material` | `(protected)` | student | done (antd) — view/download notes for enrolled batches (F13) |
 | `/teacher` | `(protected)` | teacher | retired mock → redirects to `/admin` |
 | `/home` | — | teacher | legacy AI builder (superseded by wizard) |
 | `/leaderboard` | — | public | done (antd) — ranked, batch filter |
@@ -92,21 +98,27 @@ policy. Full policy map in `DATA-MODEL.md → Row-Level Security`.
 | `/public/batches` | GET | none | signup dropdown, public-safe fields only |
 | `/public/leaderboard` | GET | none | ranked students (service role); optional `?batch=` |
 | `/generate` | POST | teacher | image(s)+params → validated MCQs (Gemini) |
-| `/tests` | GET, POST | teacher | list teacher's tests / create test + questions |
+| `/tests` | GET, POST | teacher | list teacher's live (non-archived) tests / create test + questions |
+| `/tests/[id]` | GET, PUT, DELETE | teacher | full test + questions (answers via service role) / update settings + questions / **delete or archive** |
 | `/tests/[id]/results` | GET | teacher | per-enrolled-student late/missed report + roll-up |
 | `/students` | GET | teacher | roster: profile + contact + batches + activity |
 | `/students/[id]` | GET | teacher | student detail: profile + batches + test history |
+| `/student/batches` | GET | student | the student's enrolled batches (powers the header batch switcher) |
 | `/student/tests` | GET | student | dashboard: enrolled tests + phase + attempt state |
 | `/student/tests/[id]` | GET, PATCH | student | take-page bootstrap + answer autosave |
 | `/student/tests/[id]/start` | POST | student | start (idempotent resume) an attempt |
 | `/student/tests/[id]/submit` | POST | student | submit + server-side scoring |
+| `/study-materials` | GET, POST | teacher | list own materials (opt. `?batch=`) / upload a PDF (multipart) + insert row |
+| `/study-materials/[id]` | DELETE | teacher | delete a material (removes the storage object + row; ownership-checked) |
+| `/study-materials/[id]/download` | GET | teacher **or** enrolled student | authorize, then return a short-lived signed URL (`?mode=view\|download`) |
+| `/student/study-materials` | GET | student | materials for the student's enrolled batches (opt. `?batch=`) |
 
-**Planned (see `FEATURES.md`):** — (leaderboard shipped; admin dashboard next).
+**Planned (see `FEATURES.md`):** — (all F1–F13 shipped; seed data + live verification remain).
 
 ## 5. AI generation contract (`/api/generate`)
 
 - Input: `multipart/form-data` — `images` (one or more; legacy `image` accepted),
-  `count`, `examLevel`, `extraPrompt` (legacy `prompt` accepted).
+  `count`, `extraPrompt` (legacy `prompt` accepted).
 - Model: `gemini-2.0-flash` (override with `GEMINI_MODEL`).
 - Output: `{ questions: [{ text, options:[{key,text}]×4, correctOptionKey,
   explanation, difficulty }] }`. Server parses defensively (strips fences,

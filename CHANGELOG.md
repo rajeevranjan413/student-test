@@ -1,5 +1,255 @@
 # CHANGELOG
 
+## 2026-09-17 — Redesign: public coaching-center home page (`/` landing)
+
+Presentational only (Tailwind; no API/schema/server change). Replaced the bare
+"select your role" chooser at `/` with a full coaching-center marketing home page.
+
+**Changed**
+- `app/(protected)/page.tsx` — new sections: sticky header, hero (headline +
+  enroll/leaderboard CTAs + showcase image), stats strip, "Why choose us"
+  features, campus gallery, programs, closing CTA, and footer with contact +
+  quick links. **Student/Teacher sign-in kept as small buttons** in the header and
+  the closing CTA (link to `/login/student` and `/login/teacher`); leaderboard link
+  and the PWA install button retained.
+- Image slots render as CSS `background-image` (same lint-safe pattern as F12) with
+  branded gradient fallbacks, so the page looks finished with **no images yet**. Real
+  photos drop into `public/home/{hero,classroom,banner,toppers}.jpg` and light up
+  automatically — see `public/home/README.md`.
+- `docs/ARCHITECTURE.md` — `/` route row updated to describe the new home page.
+
+**Verified:** `npx tsc --noEmit`, `npx eslint app/(protected)/page.tsx`, and
+`npx next build` all pass. Not click-tested live (no `.env`).
+
+## 2026-09-17 — Fix: antd surfaces render white on hard reload in dark mode (F11)
+
+Bug fix. On the installed PWA (and any hard reload) in **dark mode**, Ant Design
+admin/student surfaces (cards, tables, panels) painted **white** on the dark page;
+they only corrected after a client navigation. Root cause: `next-themes` can't
+resolve the theme during SSR / the first client render, so antd's SSR styles are
+always extracted in the **light** algorithm and stay light until the antd subtree
+remounts (which a navigation did). See `docs/FEATURES.md F11 → Notes`.
+
+**Changed**
+- `components/providers/AntdProvider.tsx` — detect hydration with
+  `useSyncExternalStore` (server/first-render `false`, then `true`); hold the light
+  algorithm until mounted so hydration matches the SSR markup; then honour
+  `resolvedTheme` and **key `ConfigProvider` by the mounted flag** so the antd tree
+  remounts exactly once after hydration with the resolved theme — reproducing the
+  navigation "fix" deterministically. The key is stable afterwards, so later theme
+  toggles still update in place (no React state loss). No API/schema/contract change.
+
+**Verified:** `npx tsc --noEmit` clean · `npx eslint components/providers/AntdProvider.tsx`
+clean · `npx next build` passes.
+
+## 2026-09-17 — Study Material: teacher PDF notes shared to a batch (F13)
+
+New feature. A teacher shares study material with a batch; every enrolled student
+can see it and download it. The first (today only) material **kind** is **Notes** —
+a PDF with a title + description. Designed to be extensible (more kinds later) with
+no migration. See `docs/FEATURES.md F13` and `DECISIONS.md D24`.
+
+**Added**
+- `supabase/migrations/20260917160000_study_materials.sql` — new `study_materials`
+  table (metadata + object path; `kind` free-text, `archived_at` reserved) with RLS
+  (teacher CRUD; student SELECT enrolled + non-archived), plus a **private**
+  `study-material` Storage bucket (idempotent; guarded for bare-Postgres runs).
+- `utils/studyMaterial.ts` — shared bucket name, size/type limits, `StudyMaterial`
+  type, `formatFileSize`.
+- API: `GET/POST /api/study-materials` (teacher: list / multipart PDF upload via
+  service role, batch-ownership checked, orphan cleanup on failure),
+  `DELETE /api/study-materials/[id]` (teacher: hard-delete object + row),
+  `GET /api/study-materials/[id]/download` (teacher **or** enrolled student:
+  authorizes then mints a ~60 s signed URL; `?mode=view|download`),
+  `GET /api/student/study-materials` (student: enrolled, non-archived; opt. `?batch=`).
+- Pages: `/admin/study-material` (antd — upload modal + list with View/Download/
+  Delete + batch filter) and `/student/study-material` (antd — cards with View +
+  Download; respects the header batch switcher).
+
+**Changed**
+- `components/layout/appNav.ts` — a **Study** tab for both admin and student
+  sections + app-bar titles.
+- `app/(protected)/student/page.tsx` — the F12 **Study Material** home card is now
+  active (routes to `/student/study-material`); only **Homework** remains "Coming soon".
+- Docs: `docs/ARCHITECTURE.md`, `docs/DATA-MODEL.md`, `docs/FEATURES.md` (F13),
+  `DECISIONS.md` (D24) updated doc-first.
+
+**Verified:** `npx tsc --noEmit`, `npx eslint` (changed files), `npx next build` all
+pass. Not click-tested live (no `.env`/Supabase Storage in the repo).
+
+## 2026-09-17 — Skip login/chooser for signed-in users + fix stuck "Signing out…" (F1)
+
+Two auth-UX fixes.
+
+**Changed**
+- `middleware.ts` — authed users who hit the `/` landing page (role chooser) are
+  now redirected to their home page (teacher → `/admin`, student → `/student`),
+  matching the existing `/login`/`/signup` behavior. A signed-in user never sees
+  the sign-in / role-selection screens again.
+
+**Fixed**
+- `components/layout/AppShell.tsx` — the app bar persists across soft navigations,
+  so after sign-out → sign-in the overflow menu stayed open showing a disabled
+  "Signing out…" button. Now resets `menuOpen`/`loggingOut` on every route change.
+
+**Verified:** `npx tsc --noEmit`, `npx eslint` (changed files), `npx next build` all pass.
+
+## 2026-09-17 — Multi-batch signup + header batch switcher (F1)
+
+Students can now belong to several batches and move between them. See
+`DECISIONS.md D23`. (Teacher add/remove of students already shipped in D14 —
+`/admin/batches/[id]` — and is unchanged.)
+
+**Added**
+- `app/api/student/batches/route.ts` — `GET` the signed-in student's enrolled
+  batches (RLS-scoped, public-safe fields only); powers the header switcher.
+- `components/providers/BatchProvider.tsx` — client context holding enrolled
+  batches + the active selection (localStorage-persisted, `null` = All). Fetches
+  lazily only on `/student` routes; reconciles a stale selection to "All".
+- Header **batch switcher** in `components/layout/AppShell.tsx` — a `<select>`
+  shown only for students with >1 batch; filters the student dashboard.
+
+**Changed**
+- `app/api/auth/register/route.ts` — accepts `batchIds: string[]` (legacy single
+  `batchId` still works); one enrollment code matching **any** selected batch (or
+  the master override) enrolls the student in **all** selected batches.
+- `app/signup/page.tsx` — single batch `<select>` → multi-select checkbox list;
+  code field reworded ("for any one selected batch").
+- `app/api/student/tests/route.ts` — each test row now carries `batch_id`.
+- `app/(protected)/student/page.tsx` — filters the test list by the active batch.
+- `app/layout.tsx` — wraps the app shell in `BatchProvider`.
+
+**Verified:** `npx tsc --noEmit` clean. Not click-tested (no `.env` in repo).
+
+## 2026-09-17 — Admin can edit & delete a test (F3 completion)
+
+Completes F3: a teacher could create tests but not edit or remove them. See
+`DECISIONS.md D22`.
+
+**Added**
+- `app/api/tests/[id]/route.ts` — `GET` (full test + questions incl. answer columns,
+  read via the service-role client since they're SELECT-revoked; teacher-only,
+  ownership → 404), `PUT` (update settings always; replace the question set only when
+  the test has no attempts, else `409`), `DELETE` (hard-delete when unattempted so
+  `questions` cascade; soft-archive via `archived_at` when attempts exist, preserving
+  results/leaderboard history).
+- `app/(protected)/admin/quizzes/[id]/edit/page.tsx` — antd edit screen: settings
+  form + status control (draft/published/closed) + question editor (locked read-only
+  with a notice once the test has attempts).
+- `supabase/migrations/20260917140000_quiz_archive.sql` — additive/idempotent
+  `quizzes.archived_at`; student `quizzes`/`questions` SELECT policies gain
+  `archived_at IS NULL` so archived tests disappear from students.
+
+**Changed**
+- `app/api/tests/route.ts`: teacher list filters `archived_at IS NULL`.
+- `app/(protected)/admin/quizzes/page.tsx` (list) and `.../[id]/page.tsx` (results):
+  per-row / header **Edit** + **Delete** actions (Delete via `Popconfirm`; archive vs.
+  permanent delete surfaced in the success message).
+
+**Verified:** `npx tsc --noEmit`, `npx eslint` (quiz/test files), and `npx next build`
+all pass. Not click-tested (no `.env`).
+
+## 2026-09-17 — Remove "Exam / level" field from tests (create/edit + generate)
+
+The "Exam / level" field was removed from the test lifecycle end to end. It is no
+longer collected, stored, sent to the AI, or displayed anywhere. The batch
+`exam_level` field is unrelated and unchanged.
+
+**Changed**
+- Create test wizard (`app/(protected)/admin/quizzes/new/page.tsx`) and edit test
+  form (`.../quizzes/[id]/edit/page.tsx`): dropped the "Exam / level" select from
+  Setup; Batch now spans full width. Removed `examLevel` from state/submit payloads
+  and the confirm-step summary.
+- `app/api/generate/route.ts`: stopped reading `examLevel`; the prompt no longer
+  appends a level clause.
+- Tests APIs (`app/api/tests/route.ts`, `.../[id]/route.ts`, `.../[id]/results/route.ts`)
+  and student APIs (`app/api/student/tests/route.ts`, `.../[id]/route.ts`,
+  `utils/studentTests.ts`): dropped `exam_level` from selects, request bodies,
+  inserts/updates, and JSON responses.
+- Display: removed the level Tag/row from the quizzes list, quiz detail, student
+  test list, and student take page.
+- `utils/constants.ts`: removed the now-unused `EXAM_LEVELS` list and `ExamLevel` type.
+- Docs: `DATA-MODEL.md` marks `quizzes.exam_level` deprecated (column kept nullable
+  for back-compat per the additive-migrations rule); `ARCHITECTURE.md §5`,
+  `docs/FEATURES.md` (F3/F4), and `DECISIONS.md D6` updated.
+
+**Verified:** `npx tsc --noEmit` clean; `npx eslint` clean on all changed files.
+
+## 2026-09-17 — Tests startable anytime after schedule; teacher-close is the only lock (F6 / D21)
+
+A student who misses a test's scheduled start can now take it any time afterward,
+for as long as the test is published. The old time-based hard lock (grace window →
+`missed`) is removed; the only thing that closes a test is the teacher setting it
+`closed`. Late attempts are still flagged `is_late`.
+
+**Changed**
+- `utils/test.ts`: `computePhase(timing, now, status?)` returns `closed` only when the
+  quiz status is `closed` (was: `now ≥ closesAt`); `open` stays true indefinitely after
+  `scheduled_at`. `personalDeadline(startedAt, duration)` drops the `closesAt` cap — a
+  late starter gets their full `duration_minutes`. Header/`deriveOutcome` comments updated.
+- API routes thread the quiz's `status` into `computePhase` and drop the `timing` arg
+  from `personalDeadline`: `app/api/student/tests/[id]/start`, `.../submit`,
+  `.../[id]` (GET+PATCH), `app/api/student/tests`, `app/api/tests/[id]/results`,
+  `app/api/students/[id]` (now also selects `status`).
+- `utils/constants.ts`: `LATE_GRACE_MINUTES` documented as informational only (still
+  computes the reporting `closesAt = due + grace`; no longer gates starting).
+- Student UI copy: take-page "closed" screen now says the teacher closed the test.
+
+**Docs** — `docs/DATA-MODEL.md` (timing model), `docs/FEATURES.md` (F6 rewrite + F7 note),
+`DECISIONS.md` (D21).
+
+**Verified** — `tsc --noEmit` clean, `eslint` clean on changed files, `next build` succeeds.
+No schema/migration change; API JSON stayed additive-compatible (`closes_at` retained).
+
+## 2026-09-17 — Separate student/teacher login pages (F1)
+
+The single `/login` page with an in-form student/teacher toggle is replaced by
+dedicated, single-purpose sign-in pages.
+
+**Added**
+- `app/login/student/page.tsx` and `app/login/teacher/page.tsx` — role-specific
+  sign-in forms (no toggle). Student page keeps the "Register here" link; teacher
+  page adds a "Student login" cross-link.
+- `app/login/_components/LoginForm.tsx` — shared client form; the role is fixed
+  by the page and the icon is derived from it. The server still returns the
+  user's actual role, so redirect always lands on the correct dashboard.
+
+**Changed**
+- `app/login/page.tsx` is now a chooser routing to `/login/student` or
+  `/login/teacher`; the role toggle is gone.
+- Docs: `docs/FEATURES.md` (F1) and `docs/ARCHITECTURE.md` route table updated.
+
+**Verified** — `tsc --noEmit` clean, `eslint` clean on changed files, `next build`
+succeeds (all three login routes prerender). `middleware.ts` already treats every
+`/login*` path as an auth route, so no gating change was needed.
+
+## 2026-09-17 — Batch class timing replaces course field (F2 / D20)
+
+A batch is now defined by *when it meets* (start/end time-of-day) instead of a
+free-text course name.
+
+**Added**
+- Migration `supabase/migrations/20260917120000_batch_timing.sql` — additive &
+  idempotent: adds `batches.start_time` / `batches.end_time` (`TIME`,
+  `ADD COLUMN IF NOT EXISTS`) and drops the `NOT NULL` on the now-deprecated
+  `course` column (kept in place for back-compat; nothing reads it).
+- `utils/batch.ts` — `formatBatchTiming(start,end)` → `"6:00 AM – 8:00 AM"` and
+  `toTimeInputValue()`; shared by every screen that shows a batch.
+
+**Changed**
+- APIs: `POST`/`GET /api/batches`, `PUT /api/batches/[id]`, `GET /api/public/batches`
+  (public list now `id,name,start_time,end_time`), and the batch join in
+  `GET /api/students/[id]` — `course` swapped for `start_time`/`end_time`; create
+  now requires both times.
+- UI: batch create (Tailwind `<input type="time">` ×2) & edit (antd
+  `<Input type="time">` ×2), batch list & detail, admin dashboard, student detail,
+  and the batch `<Select>` labels on the leaderboard, signup, and quiz wizard now
+  show the formatted timing range.
+
+**Verified:** `npx tsc --noEmit`, `npx eslint <changed files>`, and `npx next build`
+all pass. Not click-tested live (no `.env`; needs Supabase keys + the new migration
+applied).
+
 ## 2026-09-16 — Android-native app shell: bottom nav + top app bar (F11)
 
 Follow-up to the PWA work: the whole app now runs inside an Android-style app

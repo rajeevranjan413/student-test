@@ -5,14 +5,17 @@
 // The client is never trusted: the window lock, single-attempt guard, late flag
 // and score are all recomputed server-side in the API routes.
 //
-// Timing model (see DECISIONS.md D10):
+// Timing model (see DECISIONS.md D10, revised in D21):
 //   opensAt  = scheduled_at
 //   dueAt    = scheduled_at + duration_minutes        (the on-time deadline)
-//   closesAt = dueAt        + LATE_GRACE_MINUTES       (hard lock)
-// A student may START only while now ∈ [opensAt, closesAt). Their personal
-// deadline is min(started_at + duration, closesAt). A submission is `is_late`
-// when it lands after dueAt. If the window closes with no submission the attempt
-// is `missed`.
+//   closesAt = dueAt        + LATE_GRACE_MINUTES       (informational only)
+// A student may START any time once now ≥ opensAt, for as long as the quiz is
+// published — there is NO time-based hard lock. The only lock is the teacher
+// closing the test (quiz status 'closed'). Their personal deadline is
+// started_at + duration (full duration, however late they start). A submission is
+// `is_late` when it lands after dueAt. If the teacher closes the test with no
+// submission the attempt is `missed`. `closesAt` no longer gates anything; it is
+// kept only as an informational marker in the reporting JSON.
 
 import { LATE_GRACE_MINUTES } from "./constants";
 
@@ -57,24 +60,34 @@ export function computeTiming(
   return { opensAt, dueAt, closesAt };
 }
 
-/** Where the test sits relative to now: before / during / after its window. */
-export function computePhase(t: TestTiming, now: number = Date.now()): TestPhase {
+/**
+ * Where the test sits relative to now and its status: `upcoming` before it opens,
+ * `closed` only once the teacher has closed it (quiz status `closed`), otherwise
+ * `open`. There is no time-based lock — an open test stays startable indefinitely
+ * after `opensAt`. `status` is optional; omitting it treats the test as open-once-
+ * scheduled (the correct default for the student-facing flows that have no closed
+ * state to report).
+ */
+export function computePhase(
+  t: TestTiming,
+  now: number = Date.now(),
+  status?: QuizStatus
+): TestPhase {
+  if (status === "closed") return "closed";
   if (now < t.opensAt) return "upcoming";
-  if (now >= t.closesAt) return "closed";
   return "open";
 }
 
 /**
- * The moment this student's attempt must be finished by: their own duration
- * measured from when they started, never past the hard lock.
+ * The moment this student's attempt must be finished by: their own full duration
+ * measured from when they started. A late start no longer eats into their time —
+ * there is no hard lock to cap against (D21).
  */
 export function personalDeadline(
   startedAt: string,
-  durationMinutes: number,
-  t: TestTiming
+  durationMinutes: number
 ): number {
-  const personal = new Date(startedAt).getTime() + durationMinutes * 60_000;
-  return Math.min(personal, t.closesAt);
+  return new Date(startedAt).getTime() + durationMinutes * 60_000;
 }
 
 /** A submission is late when it lands after the on-time deadline. */
@@ -89,11 +102,11 @@ export function isLateSubmission(submittedAtMs: number, t: TestTiming): boolean 
  */
 export type ResultOutcome =
   | "on_time" // submitted on or before the on-time deadline
-  | "late" // submitted within the grace window (is_late)
-  | "in_progress" // started, window still open, not yet submitted
-  | "expired" // started but the window closed without a submission
-  | "missed" // never started and the window has closed
-  | "pending"; // never started but the window has not closed yet
+  | "late" // submitted after the on-time deadline (is_late)
+  | "in_progress" // started, test still open, not yet submitted
+  | "expired" // started but the teacher closed the test without a submission
+  | "missed" // never started and the teacher has closed the test
+  | "pending"; // never started but the test is still open (can still take it)
 
 export function deriveOutcome(
   attempt: { status: AttemptStatus; is_late: boolean | null } | null | undefined,

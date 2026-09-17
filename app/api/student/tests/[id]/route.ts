@@ -31,7 +31,6 @@ function meta(test: Awaited<ReturnType<typeof requireStudentTest>>, questionCoun
   return {
     id: test.id,
     title: test.title,
-    exam_level: test.exam_level,
     batch_name: test.batch_name,
     scheduled_at: test.scheduled_at,
     duration_minutes: test.duration_minutes,
@@ -66,15 +65,14 @@ export async function GET(
 
     const timing = computeTiming(test.scheduled_at, test.duration_minutes);
     const now = Date.now();
-    const phase = computePhase(timing, now);
+    const phase = computePhase(timing, now, test.status);
     const attempt = await loadAttempt(supabase, id, user.id);
 
     // --- In-progress attempt ---
     if (attempt?.status === "in_progress" && attempt.started_at) {
       const deadline = personalDeadline(
         attempt.started_at,
-        test.duration_minutes,
-        timing
+        test.duration_minutes
       );
       if (now >= deadline) {
         // Time is up but never submitted → auto-submit the saved answers.
@@ -134,7 +132,7 @@ export async function GET(
       });
     }
 
-    // --- No attempt yet: pre-start screen. `missed` once the window has closed ---
+    // --- No attempt yet: pre-start screen. `missed` only once the teacher closed it ---
     const { count } = await supabase
       .from("questions")
       .select("id", { count: "exact", head: true })
@@ -174,8 +172,7 @@ export async function PATCH(
     if (!test.scheduled_at)
       return NextResponse.json({ error: "Test is not schedulable." }, { status: 409 });
 
-    const timing = computeTiming(test.scheduled_at, test.duration_minutes);
-    const deadline = personalDeadline(attempt.started_at, test.duration_minutes, timing);
+    const deadline = personalDeadline(attempt.started_at, test.duration_minutes);
     if (Date.now() >= deadline)
       return NextResponse.json({ error: "Time is up." }, { status: 409 });
 

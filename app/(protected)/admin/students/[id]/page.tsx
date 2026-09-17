@@ -20,6 +20,7 @@ import type { ColumnsType } from "antd/es/table";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { ResponsiveTable } from "@/components/layout/ResponsiveTable";
+import { formatBatchTiming } from "@/utils/batch";
 
 const { Title, Text } = Typography;
 
@@ -54,7 +55,7 @@ type Payload = {
     phone: string | null;
     created_at: string | null;
   };
-  batches: { id: string; name: string | null; course: string | null }[];
+  batches: { id: string; name: string | null; start_time: string | null; end_time: string | null }[];
   history: HistoryRow[];
   summary: {
     assigned: number;
@@ -248,7 +249,9 @@ export default function StudentDetailPage({
                     {batches.map((b) => (
                       <Tag key={b.id}>
                         {b.name ?? "—"}
-                        {b.course ? ` · ${b.course}` : ""}
+                        {formatBatchTiming(b.start_time, b.end_time)
+                          ? ` · ${formatBatchTiming(b.start_time, b.end_time)}`
+                          : ""}
                       </Tag>
                     ))}
                   </Space>

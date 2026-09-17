@@ -48,21 +48,35 @@ export async function GET(
     // Enrolled batches.
     const { data: enrollments, error: eErr } = await supabase
       .from("student_batches")
-      .select("batch_id, batches(id, name, course)")
+      .select("batch_id, batches(id, name, start_time, end_time)")
       .eq("student_id", id);
     if (eErr) throw eErr;
     const batches = (enrollments ?? [])
       .map((row) => {
         const b = row.batches as
-          | { id?: string; name?: string; course?: string }
-          | { id?: string; name?: string; course?: string }[]
+          | { id?: string; name?: string; start_time?: string; end_time?: string }
+          | { id?: string; name?: string; start_time?: string; end_time?: string }[]
           | null;
         const flat = Array.isArray(b) ? b[0] : b;
         return flat?.id
-          ? { id: flat.id, name: flat.name ?? null, course: flat.course ?? null }
+          ? {
+              id: flat.id,
+              name: flat.name ?? null,
+              start_time: flat.start_time ?? null,
+              end_time: flat.end_time ?? null,
+            }
           : null;
       })
-      .filter((b): b is { id: string; name: string | null; course: string | null } => b != null);
+      .filter(
+        (
+          b
+        ): b is {
+          id: string;
+          name: string | null;
+          start_time: string | null;
+          end_time: string | null;
+        } => b != null
+      );
     const batchIds = batches.map((b) => b.id);
 
     // Published/closed tests in those batches (the student's assignable set).
@@ -72,6 +86,7 @@ export async function GET(
       scheduled_at: string | null;
       duration_minutes: number | null;
       passing_marks: number | null;
+      status: "draft" | "published" | "closed";
       batch_id: string;
       batches: { name?: string } | { name?: string }[] | null;
     }[] = [];
@@ -79,7 +94,7 @@ export async function GET(
       const { data: q, error: qErr } = await supabase
         .from("quizzes")
         .select(
-          "id, title, scheduled_at, duration_minutes, passing_marks, batch_id, batches(name)"
+          "id, title, scheduled_at, duration_minutes, passing_marks, status, batch_id, batches(name)"
         )
         .in("batch_id", batchIds)
         .or("status.eq.published,status.eq.closed,is_published.eq.true")
@@ -115,7 +130,11 @@ export async function GET(
     const now = Date.now();
     const history = quizzes.map((q) => {
       const phase = q.scheduled_at
-        ? computePhase(computeTiming(q.scheduled_at, q.duration_minutes ?? 30), now)
+        ? computePhase(
+            computeTiming(q.scheduled_at, q.duration_minutes ?? 30),
+            now,
+            q.status
+          )
         : "upcoming";
       const attempt = byQuiz.get(q.id);
       const outcome = deriveOutcome(attempt, phase);

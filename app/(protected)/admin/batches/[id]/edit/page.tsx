@@ -15,12 +15,14 @@ import {
 } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
+import { toTimeInputValue } from "@/utils/batch";
 
 const { Title } = Typography;
 
 type BatchForm = {
   name: string;
-  course: string;
+  start_time: string;
+  end_time: string;
   secret_pass: string;
   description?: string;
   exam_level?: string;
@@ -52,7 +54,8 @@ export default function EditBatchPage({
         const b = await res.json();
         form.setFieldsValue({
           name: b.name ?? "",
-          course: b.course ?? "",
+          start_time: toTimeInputValue(b.start_time),
+          end_time: toTimeInputValue(b.end_time),
           secret_pass: b.secret_pass ?? "",
           description: b.description ?? "",
           exam_level: b.exam_level ?? "",
@@ -73,7 +76,8 @@ export default function EditBatchPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: values.name,
-          course: values.course,
+          start_time: values.start_time,
+          end_time: values.end_time,
           secret_pass: values.secret_pass,
           description: values.description || null,
           exam_level: values.exam_level || null,
@@ -139,13 +143,24 @@ export default function EditBatchPage({
           >
             <Input placeholder="e.g. Fall 2026 - Section A" />
           </Form.Item>
-          <Form.Item
-            name="course"
-            label="Course name"
-            rules={[{ required: true, message: "Enter a course name" }]}
-          >
-            <Input placeholder="e.g. UPSC Prelims" />
-          </Form.Item>
+          <Flex gap={16}>
+            <Form.Item
+              name="start_time"
+              label="Start time"
+              rules={[{ required: true, message: "Enter a start time" }]}
+              style={{ flex: 1 }}
+            >
+              <Input type="time" />
+            </Form.Item>
+            <Form.Item
+              name="end_time"
+              label="End time"
+              rules={[{ required: true, message: "Enter an end time" }]}
+              style={{ flex: 1 }}
+            >
+              <Input type="time" />
+            </Form.Item>
+          </Flex>
           <Form.Item
             name="secret_pass"
             label="Secret pass code"

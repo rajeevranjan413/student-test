@@ -1,193 +1,154 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Card, Carousel, Flex, Tag, Typography } from "antd";
 import {
-  Badge,
-  Button,
-  Card,
-  Empty,
-  Flex,
-  Spin,
-  Statistic,
-  Tag,
-  Typography,
-} from "antd";
-import {
-  CalendarOutlined,
-  ClockCircleOutlined,
   FileTextOutlined,
+  ReadOutlined,
+  RightOutlined,
+  SolutionOutlined,
 } from "@ant-design/icons";
+import type { ComponentType } from "react";
 import { PageContainer } from "@/components/layout/PageContainer";
 
 const { Title, Text } = Typography;
 
-type TestState = "not_started" | "in_progress" | "submitted" | "missed";
-type Phase = "upcoming" | "open" | "closed";
+/**
+ * Student home — the landing screen after a student signs in (F12).
+ *
+ * A banner slider (top) followed by section cards that route into features.
+ * Home is presentational only: no API, no schema, no server logic — every
+ * security-critical rule stays in the F6 endpoints the Tests card links to.
+ */
 
-type StudentTestRow = {
-  id: string;
+// Placeholder banner creatives. The maintainer will replace each `src` with a
+// real image URL — this array is the single place to edit. Kept as remote URLs
+// (not bundled assets) so swapping them is a one-line change per slide.
+const BANNERS: { src: string; alt: string }[] = [
+  { src: "https://picsum.photos/seed/nc-banner-1/1200/420", alt: "Banner 1" },
+  { src: "https://picsum.photos/seed/nc-banner-2/1200/420", alt: "Banner 2" },
+  { src: "https://picsum.photos/seed/nc-banner-3/1200/420", alt: "Banner 3" },
+  { src: "https://picsum.photos/seed/nc-banner-4/1200/420", alt: "Banner 4" },
+  { src: "https://picsum.photos/seed/nc-banner-5/1200/420", alt: "Banner 5" },
+  { src: "https://picsum.photos/seed/nc-banner-6/1200/420", alt: "Banner 6" },
+];
+
+type Section = {
+  key: string;
   title: string;
-  exam_level: string | null;
-  batch_name: string | null;
-  scheduled_at: string | null;
-  duration_minutes: number;
-  marks_per_question: number;
-  negative_marking: number;
-  passing_marks: number | null;
-  question_count: number;
-  phase: Phase;
-  state: TestState;
-  score: number | null;
-  max_score: number | null;
-  correct_count: number | null;
-  is_late: boolean;
+  desc: string;
+  icon: ComponentType;
+  color: string;
+  href?: string; // present = active; absent = coming soon
 };
 
-function fmt(dt: string | null) {
-  return dt ? new Date(dt).toLocaleString() : "—";
-}
+// Tests is live today; Homework and Study Material are placeholders for features
+// the maintainer will add later (rendered disabled with a "Coming soon" tag).
+const SECTIONS: Section[] = [
+  {
+    key: "tests",
+    title: "Tests",
+    desc: "Attempt your scheduled tests and view results.",
+    icon: FileTextOutlined,
+    color: "#2563eb",
+    href: "/student/tests",
+  },
+  {
+    key: "homework",
+    title: "Homework",
+    desc: "Assignments from your teacher.",
+    icon: SolutionOutlined,
+    color: "#7c3aed",
+  },
+  {
+    key: "study",
+    title: "Study Material",
+    desc: "Notes, PDFs and resources.",
+    icon: ReadOutlined,
+    color: "#059669",
+    href: "/student/study-material",
+  },
+];
 
-const STATE_TAG: Record<TestState, { color: string; label: string }> = {
-  not_started: { color: "blue", label: "Not started" },
-  in_progress: { color: "gold", label: "In progress" },
-  submitted: { color: "green", label: "Completed" },
-  missed: { color: "red", label: "Missed" },
-};
-
-export default function StudentDashboard() {
+export default function StudentHome() {
   const router = useRouter();
-  const [rows, setRows] = useState<StudentTestRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/api/student/tests");
-        if (!res.ok) {
-          setError((await res.json().catch(() => ({}))).error ?? "Failed to load tests.");
-          return;
-        }
-        setRows(await res.json());
-      } catch {
-        setError("Failed to load tests.");
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
-
-  function action(r: StudentTestRow) {
-    if (r.state === "submitted")
-      return (
-        <Button onClick={() => router.push(`/student/tests/${r.id}`)}>
-          View result
-        </Button>
-      );
-    if (r.state === "in_progress")
-      return (
-        <Button type="primary" danger onClick={() => router.push(`/student/tests/${r.id}`)}>
-          Resume
-        </Button>
-      );
-    if (r.state === "missed")
-      return (
-        <Button disabled>Missed</Button>
-      );
-    // not_started
-    if (r.phase === "open")
-      return (
-        <Button type="primary" onClick={() => router.push(`/student/tests/${r.id}`)}>
-          Start test
-        </Button>
-      );
-    return <Button disabled>Opens {fmt(r.scheduled_at)}</Button>;
-  }
-
-  if (loading)
-    return (
-      <Flex justify="center" style={{ padding: 64 }}>
-        <Spin size="large" />
-      </Flex>
-    );
 
   return (
     <PageContainer max={960}>
-      <Title level={3} style={{ marginTop: 0 }}>
-        My Tests
+      {/* Banner slider */}
+      <Carousel autoplay autoplaySpeed={4000} draggable adaptiveHeight={false}>
+        {BANNERS.map((b) => (
+          <div key={b.src}>
+            <div
+              role="img"
+              aria-label={b.alt}
+              style={{
+                aspectRatio: "1200 / 420",
+                width: "100%",
+                borderRadius: 12,
+                backgroundImage: `url(${b.src})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+                backgroundColor: "rgba(0,0,0,0.04)",
+              }}
+            />
+          </div>
+        ))}
+      </Carousel>
+
+      {/* Section cards */}
+      <Title level={4} style={{ marginTop: 28, marginBottom: 4 }}>
+        Explore
       </Title>
-      <Text type="secondary">Scheduled tests for the batches you are enrolled in.</Text>
+      <Text type="secondary">Jump into your coaching activities.</Text>
 
-      {error && (
-        <Card style={{ marginTop: 24 }}>
-          <Text type="danger">{error}</Text>
-        </Card>
-      )}
-
-      {!error && rows.length === 0 && (
-        <Card style={{ marginTop: 24 }}>
-          <Empty description="No tests assigned to your batches yet." />
-        </Card>
-      )}
-
-      <Flex vertical gap={16} style={{ marginTop: 24 }}>
-        {rows.map((r) => {
-          const tag = STATE_TAG[r.state];
+      <Flex wrap gap={16} style={{ marginTop: 16 }}>
+        {SECTIONS.map((s) => {
+          const Icon = s.icon;
+          const active = Boolean(s.href);
           return (
-            <Card key={r.id} styles={{ body: { padding: 20 } }}>
-              <Flex justify="space-between" align="flex-start" gap={16} wrap>
-                <div style={{ minWidth: 240, flex: 1 }}>
-                  <Flex align="center" gap={8} wrap>
-                    <Text strong style={{ fontSize: 16 }}>
-                      {r.title}
-                    </Text>
-                    <Tag color={tag.color}>{tag.label}</Tag>
-                    {r.state === "submitted" && r.is_late && <Tag color="volcano">Late</Tag>}
-                    {r.exam_level && <Tag>{r.exam_level}</Tag>}
-                  </Flex>
-                  <Flex gap={16} wrap style={{ marginTop: 8 }}>
-                    {r.batch_name && <Text type="secondary">{r.batch_name}</Text>}
-                    <Text type="secondary">
-                      <CalendarOutlined /> {fmt(r.scheduled_at)}
-                    </Text>
-                    <Text type="secondary">
-                      <ClockCircleOutlined /> {r.duration_minutes} min
-                    </Text>
-                    <Text type="secondary">
-                      <FileTextOutlined /> {r.question_count} questions
-                    </Text>
-                  </Flex>
-                </div>
-
-                <Flex align="center" gap={20}>
-                  {r.state === "submitted" && r.max_score != null && (
-                    <Badge.Ribbon
-                      text={
-                        r.passing_marks != null
-                          ? (r.score ?? 0) >= r.passing_marks
-                            ? "Pass"
-                            : "Fail"
-                          : ""
-                      }
-                      color={
-                        r.passing_marks != null && (r.score ?? 0) >= r.passing_marks
-                          ? "green"
-                          : "red"
-                      }
-                      style={{ display: r.passing_marks != null ? undefined : "none" }}
-                    >
-                      <Statistic
-                        title="Score"
-                        value={r.score ?? 0}
-                        suffix={`/ ${r.max_score}`}
-                        valueStyle={{ fontSize: 20 }}
-                      />
-                    </Badge.Ribbon>
-                  )}
-                  {action(r)}
-                </Flex>
+            <Card
+              key={s.key}
+              hoverable={active}
+              onClick={() => s.href && router.push(s.href)}
+              style={{
+                flex: "1 1 220px",
+                minWidth: 200,
+                opacity: active ? 1 : 0.6,
+                cursor: active ? "pointer" : "default",
+              }}
+              styles={{ body: { padding: 20 } }}
+            >
+              <Flex align="flex-start" justify="space-between" gap={12}>
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: 44,
+                    height: 44,
+                    borderRadius: 12,
+                    background: `${s.color}1a`,
+                    color: s.color,
+                    fontSize: 22,
+                  }}
+                >
+                  <Icon />
+                </span>
+                {active ? (
+                  <RightOutlined style={{ color: "#9ca3af" }} />
+                ) : (
+                  <Tag color="default" style={{ marginInlineEnd: 0 }}>
+                    Coming soon
+                  </Tag>
+                )}
               </Flex>
+              <Text strong style={{ display: "block", fontSize: 16, marginTop: 14 }}>
+                {s.title}
+              </Text>
+              <Text type="secondary" style={{ fontSize: 13 }}>
+                {s.desc}
+              </Text>
             </Card>
           );
         })}

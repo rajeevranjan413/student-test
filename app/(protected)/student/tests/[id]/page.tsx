@@ -54,7 +54,6 @@ type ResultPayload = {
 type Meta = {
   id: string;
   title: string;
-  exam_level: string | null;
   batch_name: string | null;
   scheduled_at: string | null;
   duration_minutes: number;
@@ -269,8 +268,8 @@ export default function TakeTestPage({
     return shell(
       <Result
         status="error"
-        title="Test window closed"
-        subTitle={`The window for "${meta.title}" has closed and you did not submit an attempt.`}
+        title="Test closed"
+        subTitle={`"${meta.title}" has been closed by your teacher and can no longer be taken.`}
         extra={<Button onClick={() => router.push("/student")}>Back to my tests</Button>}
       />
     );
@@ -287,9 +286,6 @@ export default function TakeTestPage({
         <Descriptions column={1} size="small" style={{ marginBottom: 16 }}>
           {meta.batch_name && (
             <Descriptions.Item label="Batch">{meta.batch_name}</Descriptions.Item>
-          )}
-          {meta.exam_level && (
-            <Descriptions.Item label="Level">{meta.exam_level}</Descriptions.Item>
           )}
           <Descriptions.Item label="Opens">
             {meta.scheduled_at ? new Date(meta.scheduled_at).toLocaleString() : "—"}

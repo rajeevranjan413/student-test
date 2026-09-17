@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Plus, Trash2, Edit, Loader2, BookOpen } from "lucide-react";
+import { formatBatchTiming } from "@/utils/batch";
 
 type Batch = {
   id: string;
   name: string;
-  course: string;
+  start_time: string | null;
+  end_time: string | null;
   secret_pass: string;
   student_count?: number;
   test_count?: number;
@@ -87,7 +89,7 @@ export default function BatchesPage() {
                   </button>
                 </div>
               </div>
-              <p className="mt-1 text-sm text-muted-foreground">{batch.course}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{formatBatchTiming(batch.start_time, batch.end_time) ?? "—"}</p>
               <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-foreground">
                   {batch.secret_pass}
@@ -106,7 +108,7 @@ export default function BatchesPage() {
             <thead>
               <tr className="bg-muted/50 border-b border-border">
                 <th className="px-6 py-4 text-sm font-medium text-muted-foreground">Batch Name</th>
-                <th className="px-6 py-4 text-sm font-medium text-muted-foreground">Course Name</th>
+                <th className="px-6 py-4 text-sm font-medium text-muted-foreground">Timing</th>
                 <th className="px-6 py-4 text-sm font-medium text-muted-foreground">Secret Pass Code</th>
                 <th className="px-6 py-4 text-sm font-medium text-muted-foreground text-center">Students</th>
                 <th className="px-6 py-4 text-sm font-medium text-muted-foreground text-center">Tests</th>
@@ -121,7 +123,7 @@ export default function BatchesPage() {
                       {batch.name}
                     </Link>
                   </td>
-                  <td className="px-6 py-4 text-sm text-muted-foreground">{batch.course}</td>
+                  <td className="px-6 py-4 text-sm text-muted-foreground">{formatBatchTiming(batch.start_time, batch.end_time) ?? "—"}</td>
                   <td className="px-6 py-4">
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-foreground">
                       {batch.secret_pass}

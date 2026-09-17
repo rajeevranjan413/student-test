@@ -17,6 +17,9 @@ auth.users ─1:1─ profiles ─┬─< student_batches >─┬─ batches ─<
 - A **batch** groups students (m2m via `student_batches`) and is owned by a teacher.
 - A **quiz** (= the spec's "Test") belongs to a batch; it has many **questions**.
 - A **quiz_attempt** is one student's single attempt at one quiz.
+- A **study_material** is a file (today a PDF, `kind='notes'`) a teacher shares to a
+  batch; every enrolled student can view/download it. It hangs off `batches` like
+  quizzes do (`batch ─< study_materials`).
 
 ## Enums
 
@@ -44,12 +47,14 @@ Email/phone live in `auth.users` (query via service role when the admin needs th
 |---|---|---|
 | `id` | uuid PK | |
 | `name` | text | not null |
-| `course` | text | not null |
+| `start_time` | time | class start time-of-day (the "batch timing") |
+| `end_time` | time | class end time-of-day |
 | `teacher_id` | uuid | → profiles, owner |
 | `secret_pass` | text | **unique**; per-batch enrollment code (never exposed publicly) |
 | `description` | text | optional |
 | `exam_level` | text | optional |
-| `start_date` | timestamptz | optional |
+| `start_date` | timestamptz | optional (calendar start date — distinct from `start_time`) |
+| ~~`course`~~ | text | **deprecated** — kept nullable for back-compat; no code reads/writes it (replaced by `start_time`/`end_time`) |
 | `status` | batch_status | default `active`; archive instead of delete |
 | `archived_at` | timestamptz | set when archived |
 | `created_at` | timestamptz | |
@@ -68,7 +73,7 @@ Email/phone live in `auth.users` (query via service role when the admin needs th
 | `title` | text | not null |
 | `batch_id` | uuid | → batches |
 | `teacher_id` | uuid | → profiles, creator |
-| `exam_level` | text | |
+| ~~`exam_level`~~ | text | **deprecated** — kept nullable for back-compat; no code reads/writes it (the "Exam / level" field was removed from create/edit test). |
 | `scheduled_at` | timestamptz | window opens here |
 | `duration_minutes` | int | default 30; time a student gets once started |
 | `total_questions` | int | target required at creation |
@@ -77,7 +82,12 @@ Email/phone live in `auth.users` (query via service role when the admin needs th
 | `passing_marks` | int | optional |
 | `status` | quiz_status | default `draft` |
 | `is_published` | bool | legacy flag, mirrored from `status` |
+| `archived_at` | timestamptz | set when a test with attempts is soft-deleted; hidden from students (RLS) and the teacher list. `NULL` = live |
 | `created_at` | timestamptz | |
+
+> **Deleting a test:** a test with **no** attempts is hard-deleted (its `questions`
+> cascade). A test that already has `quiz_attempts` is **soft-deleted** by setting
+> `archived_at` (never destroyed) so results/leaderboard history survive. See D22.
 
 ### questions (only APPROVED questions are stored)
 | Column | Type | Notes |
@@ -116,23 +126,57 @@ Email/phone live in `auth.users` (query via service role when the admin needs th
 | `created_at` | timestamptz | |
 | **unique** | (`quiz_id`,`student_id`) | **DB-level single-attempt guarantee** |
 
+### study_materials (teacher-shared resources for a batch)
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `batch_id` | uuid | → batches on delete cascade; the batch the material is shared with |
+| `teacher_id` | uuid | → profiles, uploader |
+| `kind` | text | default `notes`. The material **type**; `notes` (a PDF) is the only kind today. Kept as free text (not an enum) so future kinds — videos, links, assignments — are additive with no migration. |
+| `title` | text | not null; shown to students |
+| `description` | text | optional blurb |
+| `file_path` | text | not null; the object path **inside** the private `study-material` storage bucket (e.g. `<batch_id>/<uuid>.pdf`). Never a public URL. |
+| `file_name` | text | not null; the original upload filename, used as the download filename |
+| `file_size` | bigint | bytes (for display) |
+| `mime_type` | text | e.g. `application/pdf` |
+| `archived_at` | timestamptz | reserved for a future soft-delete; `NULL` = live. Today the API **hard-deletes** a material (a file carries no results/history), but the column + student policy guard exist so soft-delete can be added without a migration |
+| `created_at` | timestamptz | |
+
+> **File hosting:** the PDF bytes live in a **private Supabase Storage bucket**
+> (`study-material`), created by the same migration. All object access is
+> server-side through the **service-role** client: uploads on `POST`, and
+> short-lived **signed URLs** (~60s) minted on download after the caller is
+> authorized (owning teacher, or a student enrolled in `batch_id`). The bucket is
+> **not public** — a raw object URL never works, so a signed URL is the only way
+> in, and enrollment is re-checked server-side each time.
+
 ## Attempt timing model (canonical)
 
-Let `open = scheduled_at`, `end = scheduled_at + duration_minutes`, and
-`hardClose = end + LATE_GRACE_MINUTES` (`utils/constants.ts`, default 15).
+Let `open = scheduled_at` and `due = scheduled_at + duration_minutes` (the
+**on-time deadline** — only used to flag lateness). There is **no time-based hard
+lock**: once a test opens it stays startable indefinitely. The only thing that
+locks a test is the **teacher closing it** (`quizzes.status = 'closed'`).
 
-| Now vs window | Student can start? | Flag |
+| Now / quiz status | Student can start? | Flag |
 |---|---|---|
 | `now < open` | No — locked, show countdown | — |
-| `open ≤ now ≤ end` | Yes | on-time |
-| `end < now ≤ hardClose` | Yes (grace) | `is_late = true` |
-| `now > hardClose`, no attempt | No | `missed` |
+| `now ≥ open`, status `published` | Yes | on-time if submitted by `due`, else `is_late = true` |
+| status `closed`, no attempt | No | `missed` |
 
+- A student who misses the scheduled time can still take the test at any later time
+  while it is published; their attempt is simply flagged `is_late` (submitted after
+  `due`). "Missed" now means the teacher **closed** the test before the student
+  attempted it — not that a time window elapsed.
 - One attempt only — enforced by the unique constraint **and** re-checked server-side.
-- Timer = `min(duration_minutes, time until hardClose)` from the real `started_at`;
-  auto-submit at zero. All timing validated server-side; the client clock is untrusted.
-- The shared timing helper is expected at `utils/test.ts` (planned) so the start/
-  submit endpoints and the student UI agree on one implementation.
+- Timer = `duration_minutes` from the real `started_at` (each student gets their full
+  duration no matter how late they start); auto-submit at zero. All timing validated
+  server-side; the client clock is untrusted. Closing a test blocks **new** starts;
+  an already in-progress attempt still runs its full duration to completion.
+- The shared timing helper is `utils/test.ts`: `computePhase(timing, now, status)`
+  returns `closed` only when the quiz status is `closed`, `upcoming` before `open`,
+  otherwise `open`. `personalDeadline(startedAt, durationMinutes) = startedAt +
+  duration`. `LATE_GRACE_MINUTES` (`utils/constants.ts`) no longer gates anything; it
+  survives only as the informational `closesAt = due + grace` marker in reporting JSON.
 
 ## Row-Level Security (RLS)
 
@@ -145,9 +189,10 @@ raw browser query can no longer bypass them.
 | `profiles` | SELECT own row; teacher SELECTs all. No client writes. |
 | `batches` | teacher: full CRUD; student: SELECT enrolled batches only. `secret_pass` revoked from `anon`. |
 | `student_batches` | student SELECTs own enrollments; teacher SELECTs all. Writes via service role (registration **and** the admin enroll/remove UI, `/api/batches/[id]/students`). |
-| `quizzes` | teacher: full CRUD; student: SELECT published tests in enrolled batches. |
+| `quizzes` | teacher: full CRUD; student: SELECT published, **non-archived** tests in enrolled batches. |
 | `questions` | teacher: full CRUD; student: SELECT body of takeable questions. **`correct_answer`/`explanation` column-REVOKEd from everyone but service role.** |
 | `quiz_attempts` | student/teacher SELECT (own / all). **No client writes** — inserts & updates go through the service role. |
+| `study_materials` | teacher: full CRUD. student: SELECT non-archived rows in enrolled batches only. The **file bytes** are in a private storage bucket reached only via server-minted signed URLs (service role), so RLS on this table protects the *metadata* and the download route re-checks enrollment before signing. |
 
 - **Roles:** `anon` (public, no session), `authenticated` (students *and* teachers
   share this one Postgres role — role split is via the `is_teacher()` helper, not

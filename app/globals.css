@@ -123,3 +123,41 @@
     transform: none;
   }
 }
+
+/* 6. Mobile calendar / date-time popups (Ant Design DatePicker).
+      The picker dropdown is portal-rendered at <body>, so it can't be styled
+      per-page. On phones the date + time panel is wider than the screen and gets
+      pinned to the input's left edge, spilling off-screen. Here we center it in
+      the viewport and stack the date/time panels so the whole calendar fits. */
+@media (max-width: 575px) {
+  .ant-picker-dropdown {
+    /* Center horizontally in the viewport, overriding AntD's inline left/right. */
+    left: 50% !important;
+    right: auto !important;
+    transform: translateX(-50%) !important;
+    max-width: 100vw;
+  }
+
+  /* Keep the panel(s) within the screen; scroll rather than overflow the page. */
+  .ant-picker-dropdown .ant-picker-panel-container,
+  .ant-picker-dropdown .ant-picker-panel-layout {
+    max-width: calc(100vw - 16px);
+  }
+
+  /* Stack the date grid on top of the time column instead of side-by-side. */
+  .ant-picker-dropdown .ant-picker-datetime-panel {
+    flex-direction: column;
+  }
+  .ant-picker-dropdown .ant-picker-datetime-panel .ant-picker-time-panel {
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+
+  /* The time column can render several lists side-by-side; let them fit/scroll. */
+  .ant-picker-dropdown .ant-picker-time-panel {
+    width: 100%;
+  }
+  .ant-picker-dropdown .ant-picker-time-panel-column {
+    overflow-y: auto;
+  }
+}

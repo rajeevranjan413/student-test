@@ -35,8 +35,9 @@ import {
   PlusOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
-import { EXAM_LEVELS, DIFFICULTY_COLORS } from "@/utils/constants";
+import { DIFFICULTY_COLORS } from "@/utils/constants";
 import { PageContainer } from "@/components/layout/PageContainer";
+import { formatBatchTiming } from "@/utils/batch";
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -54,7 +55,6 @@ type GQ = {
 type Setup = {
   title: string;
   batchId: string;
-  examLevel?: string;
   scheduledAt: string; // ISO
   durationMinutes: number;
   totalQuestions: number;
@@ -72,7 +72,7 @@ export default function NewTestWizard() {
   const { message, modal } = App.useApp();
 
   const [step, setStep] = useState(0);
-  const [batches, setBatches] = useState<{ id: string; name: string; course: string }[]>([]);
+  const [batches, setBatches] = useState<{ id: string; name: string; start_time: string | null; end_time: string | null }[]>([]);
   const [setupForm] = Form.useForm();
   const [setup, setSetup] = useState<Setup | null>(null);
 
@@ -113,7 +113,6 @@ export default function NewTestWizard() {
       setSetup({
         title: v.title.trim(),
         batchId: v.batchId,
-        examLevel: v.examLevel,
         scheduledAt: v.scheduledAt.toISOString(),
         durationMinutes: v.durationMinutes,
         totalQuestions: v.totalQuestions,
@@ -142,7 +141,6 @@ export default function NewTestWizard() {
         fd.append("images", file);
       });
       fd.append("count", String(roundCount));
-      fd.append("examLevel", setup?.examLevel ?? "");
       fd.append("extraPrompt", extraPrompt);
 
       const res = await fetch("/api/generate", { method: "POST", body: fd });
@@ -237,7 +235,6 @@ export default function NewTestWizard() {
         body: JSON.stringify({
           title: setup.title,
           batchId: setup.batchId,
-          examLevel: setup.examLevel,
           scheduledAt: setup.scheduledAt,
           durationMinutes: setup.durationMinutes,
           totalQuestions: setup.totalQuestions,
@@ -306,33 +303,23 @@ export default function NewTestWizard() {
               <Input placeholder="e.g. Newton's Laws — Weekly Test" />
             </Form.Item>
 
-            <Row gutter={16}>
-              <Col xs={24} sm={12}>
-                <Form.Item
-                  name="batchId"
-                  label="Batch"
-                  rules={[{ required: true, message: "Select a batch" }]}
-                >
-                  <Select
-                    placeholder={batches.length ? "Select a batch" : "No batches yet"}
-                    options={batches.map((b) => ({
-                      value: b.id,
-                      label: `${b.name}${b.course ? ` (${b.course})` : ""}`,
-                    }))}
-                    notFoundContent="Create a batch first"
-                  />
-                </Form.Item>
-              </Col>
-              <Col xs={24} sm={12}>
-                <Form.Item name="examLevel" label="Exam / level">
-                  <Select
-                    allowClear
-                    placeholder="Select level"
-                    options={EXAM_LEVELS.map((e) => ({ value: e, label: e }))}
-                  />
-                </Form.Item>
-              </Col>
-            </Row>
+            <Form.Item
+              name="batchId"
+              label="Batch"
+              rules={[{ required: true, message: "Select a batch" }]}
+            >
+              <Select
+                placeholder={batches.length ? "Select a batch" : "No batches yet"}
+                options={batches.map((b) => {
+                  const timing = formatBatchTiming(b.start_time, b.end_time);
+                  return {
+                    value: b.id,
+                    label: `${b.name}${timing ? ` (${timing})` : ""}`,
+                  };
+                })}
+                notFoundContent="Create a batch first"
+              />
+            </Form.Item>
 
             <Row gutter={16}>
               <Col xs={24} sm={8}>
@@ -458,9 +445,9 @@ export default function NewTestWizard() {
           </div>
 
           <Divider />
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
             <Button onClick={() => setStep(0)}>Back</Button>
-            <Space>
+            <Space wrap>
               {(approved.length > 0 || candidates.length > 0) && (
                 <Button onClick={() => setStep(2)}>
                   Review ({approved.length} approved
@@ -491,8 +478,8 @@ export default function NewTestWizard() {
       {step === 2 && (
         <>
           <Card style={{ marginBottom: 16 }}>
-            <Row align="middle" gutter={16}>
-              <Col flex="auto">
+            <Row align="middle" gutter={[16, 12]} wrap>
+              <Col xs={24} md="auto" flex="auto" style={{ minWidth: 0 }}>
                 <Text strong>
                   Approved {approved.length} / {required}
                 </Text>
@@ -501,8 +488,8 @@ export default function NewTestWizard() {
                   showInfo={false}
                 />
               </Col>
-              <Col>
-                <Space>
+              <Col xs={24} md="auto">
+                <Space wrap>
                   <Button onClick={() => setStep(1)}>Generate more</Button>
                   <Button icon={<PlusOutlined />} onClick={startManualAdd}>
                     Add manually
@@ -520,7 +507,7 @@ export default function NewTestWizard() {
               <Title level={5}>To review ({candidates.length})</Title>
               {candidates.length === 0 ? (
                 <Empty description="Nothing to review — generate or add one">
-                  <Space>
+                  <Space wrap>
                     <Button onClick={() => setStep(1)}>Generate more</Button>
                     <Button icon={<PlusOutlined />} onClick={startManualAdd}>
                       Add manually
@@ -556,7 +543,7 @@ export default function NewTestWizard() {
                           {q.explanation}
                         </Paragraph>
                       )}
-                      <Space>
+                      <Space wrap>
                         <Button
                           type="primary"
                           size="small"
@@ -625,10 +612,6 @@ export default function NewTestWizard() {
               <div>{batchName}</div>
             </Col>
             <Col xs={12}>
-              <Text type="secondary">Level</Text>
-              <div>{setup.examLevel ?? "—"}</div>
-            </Col>
-            <Col xs={12}>
               <Text type="secondary">Scheduled</Text>
               <div>{new Date(setup.scheduledAt).toLocaleString()}</div>
             </Col>
@@ -652,9 +635,9 @@ export default function NewTestWizard() {
           </Row>
 
           <Divider />
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
             <Button onClick={() => setStep(2)}>Back to review</Button>
-            <Space>
+            <Space wrap>
               <Button loading={publishing} onClick={() => publish(true)}>
                 Save as draft
               </Button>

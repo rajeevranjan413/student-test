@@ -15,6 +15,7 @@ import type { ColumnsType } from "antd/es/table";
 import { TrophyOutlined } from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { ResponsiveTable } from "@/components/layout/ResponsiveTable";
+import { formatBatchTiming } from "@/utils/batch";
 
 const { Title, Text } = Typography;
 
@@ -27,7 +28,7 @@ type Row = {
   accuracy: number | null;
 };
 
-type Batch = { id: string; name: string; course: string };
+type Batch = { id: string; name: string; start_time: string | null; end_time: string | null };
 
 const MEDAL = ["🥇", "🥈", "🥉"];
 
@@ -124,10 +125,13 @@ export default function LeaderboardPage() {
             style={{ minWidth: 220 }}
             value={batch}
             onChange={setBatch}
-            options={batches.map((b) => ({
-              value: b.id,
-              label: b.course ? `${b.name} · ${b.course}` : b.name,
-            }))}
+            options={batches.map((b) => {
+              const timing = formatBatchTiming(b.start_time, b.end_time);
+              return {
+                value: b.id,
+                label: timing ? `${b.name} · ${timing}` : b.name,
+              };
+            })}
           />
           <Link href="/">← Home</Link>
         </Space>

@@ -42,7 +42,7 @@ export async function GET(
     const { data: quiz, error: quizErr } = await supabase
       .from("quizzes")
       .select(
-        "id, title, exam_level, scheduled_at, duration_minutes, total_questions, marks_per_question, negative_marking, passing_marks, status, teacher_id, batch_id, batches(name), questions(count)"
+        "id, title, scheduled_at, duration_minutes, total_questions, marks_per_question, negative_marking, passing_marks, status, teacher_id, batch_id, batches(name), questions(count)"
       )
       .eq("id", id)
       .maybeSingle();
@@ -58,7 +58,9 @@ export async function GET(
     const timing = quiz.scheduled_at
       ? computeTiming(quiz.scheduled_at, quiz.duration_minutes ?? 30)
       : null;
-    const phase: TestPhase = timing ? computePhase(timing) : "upcoming";
+    const phase: TestPhase = timing
+      ? computePhase(timing, Date.now(), quiz.status)
+      : "upcoming";
 
     // Enrolled students in this test's batch (so non-attempters show as missed).
     const { data: enrolled, error: enrErr } = await supabase
@@ -152,7 +154,6 @@ export async function GET(
       test: {
         id: quiz.id,
         title: quiz.title,
-        exam_level: quiz.exam_level ?? null,
         batch_name: batchName ?? null,
         scheduled_at: quiz.scheduled_at ?? null,
         duration_minutes: quiz.duration_minutes ?? 30,

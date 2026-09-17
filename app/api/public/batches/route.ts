@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 /**
  * Public, no-auth list of active batches for the student signup dropdown.
- * Exposes ONLY public-safe fields (id, name, course) — never `secret_pass`.
+ * Exposes ONLY public-safe fields (id, name, start_time, end_time) — never `secret_pass`.
  * Uses the service role on the server so it works before a session exists.
  */
 export async function GET() {
@@ -15,7 +15,7 @@ export async function GET() {
 
     const { data, error } = await supabase
       .from("batches")
-      .select("id, name, course")
+      .select("id, name, start_time, end_time")
       .eq("status", "active")
       .order("created_at", { ascending: false });
 

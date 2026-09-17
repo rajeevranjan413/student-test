@@ -22,13 +22,15 @@ import {
   TeamOutlined,
 } from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
+import { formatBatchTiming } from "@/utils/batch";
 
 const { Title, Text } = Typography;
 
 type Batch = {
   id: string;
   name: string;
-  course: string | null;
+  start_time: string | null;
+  end_time: string | null;
   student_count?: number;
   test_count?: number;
 };
@@ -175,7 +177,7 @@ export default function AdminHomePage() {
                   >
                     <List.Item.Meta
                       title={b.name}
-                      description={b.course ?? undefined}
+                      description={formatBatchTiming(b.start_time, b.end_time) ?? undefined}
                     />
                   </List.Item>
                 )}

@@ -25,11 +25,13 @@ function handleError(error: unknown) {
 
 // POST /api/student/tests/[id]/start — begin (or resume) the attempt. This is
 // where the window lock and single-attempt rule are enforced:
-//   • upcoming window            → 403 (not open yet)
-//   • closed window              → 403 (missed / locked)
+//   • upcoming (before scheduled_at) → 403 (not open yet)
+//   • closed (teacher closed the test) → 403 (locked)
 //   • already-submitted attempt  → 409 (one attempt only)
 //   • existing in-progress       → resumed (idempotent), never a second row
-// Starting records started_at, from which the personal countdown is derived.
+// There is no time-based lock (D21): a test stays startable after scheduled_at
+// until the teacher closes it. Starting records started_at, from which the
+// personal countdown (full duration) is derived.
 export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -47,7 +49,7 @@ export async function POST(
 
     const timing = computeTiming(test.scheduled_at, test.duration_minutes);
     const now = Date.now();
-    const phase = computePhase(timing, now);
+    const phase = computePhase(timing, now, test.status);
 
     if (phase === "upcoming")
       return NextResponse.json(
@@ -71,8 +73,7 @@ export async function POST(
     if (existing?.status === "in_progress" && existing.started_at) {
       const deadline = personalDeadline(
         existing.started_at,
-        test.duration_minutes,
-        timing
+        test.duration_minutes
       );
       if (now >= deadline) {
         // Their time already elapsed — finalize instead of resuming.
@@ -124,8 +125,7 @@ export async function POST(
         if (raced?.started_at) {
           const deadline = personalDeadline(
             raced.started_at,
-            test.duration_minutes,
-            timing
+            test.duration_minutes
           );
           const questions = await loadPublicQuestions(supabase, id);
           return NextResponse.json({
@@ -140,7 +140,7 @@ export async function POST(
       throw insErr;
     }
 
-    const deadline = personalDeadline(created.started_at, test.duration_minutes, timing);
+    const deadline = personalDeadline(created.started_at, test.duration_minutes);
     const questions = await loadPublicQuestions(supabase, id);
     return NextResponse.json({
       resumed: false,

@@ -2,11 +2,13 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
 /**
- * Student self-registration (F1 / DECISIONS.md D18).
+ * Student self-registration (F1 / DECISIONS.md D18, D23).
  *
- * Gated by the SELECTED BATCH's per-batch `secret_pass` (the enrollment code the
- * teacher hands out), not a single global secret. `REGISTRATION_SECRET_PASS`, if
- * set, is an optional global master override accepted for any batch.
+ * A student may pick MULTIPLE batches and enter a SINGLE enrollment code: the
+ * one code must match *any one* of the selected batches' per-batch `secret_pass`
+ * (or the optional global `REGISTRATION_SECRET_PASS` master override). On success
+ * the student is enrolled in ALL selected batches. See D23 for the security
+ * tradeoff (one batch's code unlocks the others in the same signup).
  *
  * Runs entirely on the service role: `student_batches` has no browser write policy
  * (RLS, D11) and `batches.secret_pass` must never reach the client.
@@ -18,14 +20,27 @@ export async function POST(request: Request) {
     const password: string | undefined = body.password;
     const fullName: string | undefined = body.fullName?.trim();
     const secretPass: string | undefined = body.secretPass;
-    const batchId: string | undefined = body.batchId;
+    // Accept the new `batchIds` array; fall back to the legacy single `batchId`
+    // so older clients keep working (additive, non-breaking — D23).
+    const rawIds: unknown = Array.isArray(body.batchIds)
+      ? body.batchIds
+      : body.batchId != null
+        ? [body.batchId]
+        : [];
+    const batchIds = Array.from(
+      new Set(
+        (rawIds as unknown[]).filter(
+          (v): v is string => typeof v === 'string' && v.length > 0
+        )
+      )
+    );
     // Role is server-decided: self-registration ALWAYS creates a student. Never
     // trust a client-supplied role (would be a privilege escalation to teacher).
 
     // 1. Validate input up front — before creating anything.
-    if (!email || !password || !fullName || !batchId || !secretPass) {
+    if (!email || !password || !fullName || batchIds.length === 0 || !secretPass) {
       return NextResponse.json(
-        { error: 'Email, full name, password, batch, and enrollment code are all required.' },
+        { error: 'Email, full name, password, at least one batch, and enrollment code are all required.' },
         { status: 400 }
       );
     }
@@ -42,29 +57,32 @@ export async function POST(request: Request) {
       { auth: { persistSession: false, autoRefreshToken: false } }
     );
 
-    // 2. Resolve the chosen batch and validate the enrollment code AGAINST IT.
-    const { data: batch, error: batchError } = await supabaseAdmin
+    // 2. Resolve every chosen batch; they must all exist and be active.
+    const { data: batches, error: batchError } = await supabaseAdmin
       .from('batches')
       .select('id, secret_pass, status')
-      .eq('id', batchId)
-      .maybeSingle();
+      .in('id', batchIds);
 
     if (batchError) throw batchError;
-    if (!batch || batch.status !== 'active') {
+
+    const activeBatches = (batches ?? []).filter((b) => b.status === 'active');
+    if (activeBatches.length !== batchIds.length) {
       return NextResponse.json(
-        { error: 'That batch is not available. Please pick a valid batch.' },
+        { error: 'One or more selected batches are not available. Please pick valid batches.' },
         { status: 400 }
       );
     }
 
+    // 3. Validate the SINGLE enrollment code against ANY selected batch (or the
+    //    optional global master override). See D23.
     const masterPass = process.env.REGISTRATION_SECRET_PASS;
     const codeMatches =
-      secretPass === batch.secret_pass ||
+      activeBatches.some((b) => secretPass === b.secret_pass) ||
       (!!masterPass && secretPass === masterPass);
 
     if (!codeMatches) {
       return NextResponse.json(
-        { error: 'Invalid enrollment code for this batch.' },
+        { error: 'Invalid enrollment code for the selected batches.' },
         { status: 400 }
       );
     }
@@ -102,10 +120,9 @@ export async function POST(request: Request) {
       throw profileError;
     }
 
-    const { error: enrollError } = await supabaseAdmin.from('student_batches').insert({
-      student_id: userId,
-      batch_id: batchId,
-    });
+    const { error: enrollError } = await supabaseAdmin.from('student_batches').insert(
+      batchIds.map((batch_id) => ({ student_id: userId, batch_id }))
+    );
     // 23505 = already enrolled; harmless and idempotent. Any other error rolls back.
     if (enrollError && enrollError.code !== '23505') {
       try {

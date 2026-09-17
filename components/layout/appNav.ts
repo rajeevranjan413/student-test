@@ -4,6 +4,7 @@ import {
   FileText,
   Users,
   Trophy,
+  Library,
   type LucideIcon,
 } from "lucide-react";
 
@@ -20,11 +21,14 @@ export const ADMIN_TABS: Tab[] = [
   { href: "/admin", label: "Home", icon: Home },
   { href: "/admin/batches", label: "Batches", icon: BookOpen },
   { href: "/admin/quizzes", label: "Tests", icon: FileText },
+  { href: "/admin/study-material", label: "Study", icon: Library },
   { href: "/admin/students", label: "Students", icon: Users },
 ];
 
 export const STUDENT_TABS: Tab[] = [
-  { href: "/student", label: "Tests", icon: FileText },
+  { href: "/student", label: "Home", icon: Home },
+  { href: "/student/tests", label: "Tests", icon: FileText },
+  { href: "/student/study-material", label: "Study", icon: Library },
   { href: "/leaderboard", label: "Ranks", icon: Trophy },
 ];
 
@@ -58,7 +62,10 @@ const EXACT_TITLES: Record<string, string> = {
   "/admin/quizzes": "Tests",
   "/admin/quizzes/new": "New test",
   "/admin/students": "Students",
-  "/student": "My Tests",
+  "/admin/study-material": "Study Material",
+  "/student": "Home",
+  "/student/tests": "My Tests",
+  "/student/study-material": "Study Material",
   "/leaderboard": "Leaderboard",
 };
 

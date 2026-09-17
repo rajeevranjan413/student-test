@@ -26,6 +26,7 @@ import {
 } from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { ResponsiveTable } from "@/components/layout/ResponsiveTable";
+import { formatBatchTiming } from "@/utils/batch";
 
 const { Title, Text } = Typography;
 
@@ -52,7 +53,8 @@ type BatchTest = {
 type Payload = {
   id: string;
   name: string | null;
-  course: string | null;
+  start_time: string | null;
+  end_time: string | null;
   secret_pass: string | null;
   description: string | null;
   exam_level: string | null;
@@ -280,8 +282,8 @@ export default function BatchDetailPage({
         <Col xs={24} md={14}>
           <Card size="small" title="Details">
             <Descriptions column={1} size="small">
-              <Descriptions.Item label="Course">
-                {data.course ?? "—"}
+              <Descriptions.Item label="Timing">
+                {formatBatchTiming(data.start_time, data.end_time) ?? "—"}
               </Descriptions.Item>
               <Descriptions.Item label="Exam level">
                 {data.exam_level ?? "—"}

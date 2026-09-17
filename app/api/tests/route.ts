@@ -27,9 +27,10 @@ export async function GET() {
     const { data, error } = await supabase
       .from("quizzes")
       .select(
-        "id, title, exam_level, scheduled_at, duration_minutes, total_questions, status, is_published, created_at, batch_id, batches(name), questions(count)"
+        "id, title, scheduled_at, duration_minutes, total_questions, status, is_published, created_at, batch_id, batches(name), questions(count)"
       )
       .eq("teacher_id", user.id)
+      .is("archived_at", null) // hide soft-deleted tests (D22)
       .order("created_at", { ascending: false });
 
     if (error) throw error;
@@ -42,7 +43,6 @@ export async function GET() {
       return {
         id: q.id,
         title: q.title,
-        exam_level: q.exam_level,
         scheduled_at: q.scheduled_at,
         duration_minutes: q.duration_minutes,
         total_questions: q.total_questions,
@@ -69,7 +69,6 @@ export async function POST(request: Request) {
     const {
       title,
       batchId,
-      examLevel,
       scheduledAt,
       durationMinutes,
       totalQuestions,
@@ -81,7 +80,6 @@ export async function POST(request: Request) {
     } = body as {
       title?: string;
       batchId?: string;
-      examLevel?: string;
       scheduledAt?: string;
       durationMinutes?: number;
       totalQuestions?: number;
@@ -118,7 +116,6 @@ export async function POST(request: Request) {
         title: title.trim(),
         batch_id: batchId,
         teacher_id: user.id,
-        exam_level: examLevel ?? null,
         scheduled_at: scheduledAt,
         duration_minutes: durationMinutes ?? 30,
         total_questions: totalQuestions ?? questions.length,

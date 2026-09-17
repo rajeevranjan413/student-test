@@ -37,9 +37,11 @@ separately. Older rows with a bare string[] still parse.
 - Model id `gemini-3.8-flash` (invalid) → **`gemini-2.0-flash`**, overridable via
   `GEMINI_MODEL`.
 - `POST /api/generate` is **teacher-only**, accepts `images` (multiple) + `count`
-  + `examLevel` + `extraPrompt` (legacy `image`/`prompt` still accepted), and
+  + `extraPrompt` (legacy `image`/`prompt` still accepted), and
   returns validated questions in the spec JSON shape. Malformed candidates are
   dropped; unreadable responses return a 502 the UI can retry.
+  - The `examLevel` param and the test "Exam / level" field were later removed
+    (the `quizzes.exam_level` column is kept nullable for back-compat but unused).
 
 ## D7 — Batch API hardening
 - `GET/POST/PUT/DELETE /api/batches*` now require the **teacher** role.
@@ -300,6 +302,189 @@ dashboard** — Sign-out looked like it did nothing, and the switch was impossib
   against `window.location.assign` for internal nav, so no hard reload).
 - No schema/API-contract change; logout response shape unchanged (additive-safe).
   Docs updated first: FEATURES F1 Notes.
+
+## D20 — Batch carries class timing (start/end), not a course (spec §F2) — DONE
+**Change:** the maintainer replaced the batch's free-text `course` with a structured
+**class timing** — `start_time` and `end_time` (Postgres `TIME`, time-of-day). A
+coaching batch is identified by *when it meets* (e.g. the "6–8 PM batch"), not a course
+name, so timing is the more useful, filterable attribute.
+
+**Resolution:**
+- **Migration is additive & non-destructive** (AGENTS.md §2: never drop a column other
+  code has read). New migration `..20260917120000_batch_timing.sql` adds `start_time`/
+  `end_time` (`ADD COLUMN IF NOT EXISTS`) and **drops the `NOT NULL` on `course`** so new
+  inserts no longer supply it. The `course` column is **left in place, nullable, and
+  unused** — no rename/drop, so any older row keeps its data and nothing breaks on re-run.
+- **Both times required** on create/edit (mirrors course's old required status). Stored as
+  `HH:MM` strings; native `<input type="time">` on both the Tailwind create page and the
+  antd edit form (antd `<Input type="time">`) — **no new dep** (avoids antd `TimePicker`'s
+  `dayjs`, which is only a transitive dependency).
+- **Display** via new `utils/batch.ts#formatBatchTiming(start,end)` → `"6:00 AM – 8:00 AM"`
+  (12-hour, seconds stripped, null-safe). Used by the batch list/detail/dashboard, student
+  detail, and the batch `<Select>` labels on leaderboard / signup / quiz-wizard.
+- **API contract stays additive-compatible**: `course` removed from the accepted/returned
+  field set, `start_time`/`end_time` added; `/api/public/batches` now exposes
+  `id,name,start_time,end_time` (still no `secret_pass`).
+- Docs updated first: DATA-MODEL batches table, FEATURES F2.
+
+## D21 — Tests are startable anytime after schedule; teacher-close is the only lock (spec §F6) — DONE
+**Change (maintainer request):** a student who misses a test's scheduled time should
+still be able to take it later. The old model (D10) hard-locked a test at
+`hardClose = due + LATE_GRACE_MINUTES` and marked non-attempters `missed`, so a
+student who logged in a few minutes late was permanently shut out.
+
+**Resolution — remove the time-based lock; keep late tracking:**
+- **Phase now keys off quiz status, not the clock.** `computePhase(timing, now,
+  status)` returns `closed` **only** when `quizzes.status === 'closed'`, `upcoming`
+  before `scheduled_at`, otherwise `open`. A published, past-scheduled test is `open`
+  indefinitely. The `status` arg is optional (defaults to open-after-schedule), so
+  every existing 2-arg caller keeps working.
+- **Full personal duration.** `personalDeadline(startedAt, duration) = startedAt +
+  duration` — the old `min(…, closesAt)` cap is gone, so a late starter still gets
+  their whole `duration_minutes`. Dropped the now-unused `timing` arg from the
+  signature and updated all call sites (start / submit / take-page GET+PATCH).
+- **Lateness unchanged:** `is_late = submitted_at > due` still holds, so F7 reporting
+  keeps its on-time/late split. `LATE_GRACE_MINUTES` no longer gates anything; it
+  survives only as the informational `closesAt = due + grace` field in the results JSON.
+- **`missed`/`expired` re-pointed:** with no time lock, `deriveOutcome` yields `missed`
+  (no attempt) / `expired` (unfinished attempt) only once the teacher closes the test;
+  a non-attempter on an open test is `pending`. No signature change — the meaning of
+  the `closed` phase it receives is what moved.
+- **Closing is the admin's lock:** setting a quiz `closed` blocks new starts (start
+  route still 403s on `closed`); an already in-progress attempt runs its duration out.
+- Docs updated first: DATA-MODEL timing model, FEATURES F6 (+F7 note). Additive only —
+  no schema/migration change and the API JSON stayed additive-compatible.
+
+## D22 — Admin can edit & delete a test (F3 completion)
+
+**Context:** F3 shipped test *creation* (wizard) + results, but a teacher could
+neither edit a test after creating it nor remove one — the `/admin/quizzes` list
+only linked to results. Requested: complete the feature so admins can edit and
+delete tests.
+
+**Edit (`PUT /api/tests/[id]` + `/admin/quizzes/[id]/edit`):**
+- **Settings** (title, batch, exam level, `scheduled_at`, duration, marks scheme,
+  passing marks, `status`) are always editable. `status` drives the publish/close
+  lifecycle; `is_published` is kept mirrored (`status !== 'draft'`).
+- **Questions** may be replaced only while the test has **zero `quiz_attempts`**.
+  Once any student has attempted, replacing questions would silently invalidate
+  already-computed scores, so the API refuses (409) and the edit UI renders the
+  questions read-only with a notice. Settings can still be edited (incl. closing).
+- Question replace is delete-all-then-insert within the same request (mirrors the
+  POST insert shape); reuses the wizard's MCQ editor component contract.
+- The edit form must show `correct_answer`/`explanation`, which are SELECT-revoked
+  from the browser JWT (D11/F10), so `GET /api/tests/[id]` reads questions through
+  the **service-role** client after `requireTeacher` + ownership (404 on mismatch).
+
+**Delete (`DELETE /api/tests/[id]`):** follows the app-wide "soft-delete anything
+with history" rule.
+- **No attempts →** hard-delete the quiz (its `questions` cascade). Nothing to keep.
+- **Has attempts →** soft-delete by setting `quizzes.archived_at = now()` (never
+  destroy the row) so results (F7) and the leaderboard (F8) keep working. Archived
+  tests are filtered out of `GET /api/tests` and hidden from students via RLS.
+
+**Why not add an `archived` enum value?** The `quizzes_select_student` policy is
+`(is_published OR status <> 'draft')`; an `archived` status would still satisfy
+`status <> 'draft'` and leak to students. A nullable `archived_at` column
+(migration `20260917140000_quiz_archive.sql`, mirrors `batches.archived_at`) plus an
+`archived_at IS NULL` guard added to the student `quizzes`/`questions` SELECT
+policies is additive, idempotent, and can't leak. No column renamed/dropped.
+
+**Verify:** typecheck / lint(changed) / build pass; not click-tested (no `.env`).
+
+## D23 — Multi-batch signup (one code → all selected) + header batch switcher (F1) — DONE
+
+**Context:** a student at a coaching center often attends more than one batch.
+Requested: let a student (a) pick **multiple** batches at signup while entering
+just **one** enrollment code, (b) switch which batch they're viewing from the app
+header, and (c) be added/removed from a batch by the teacher (already shipped in
+D14 — `/admin/batches/[id]` + `POST/DELETE /api/batches/[id]/students`; no change).
+
+**Signup — multiple batches, one code (`POST /api/auth/register`):**
+- Body now takes `batchIds: string[]` (legacy single `batchId` still accepted → an
+  array of one, non-breaking). All selected batches must exist and be `active`
+  (else 400 before any account is created).
+- The one entered `secretPass` is accepted if it equals the `secret_pass` of **any**
+  selected batch, or the optional `REGISTRATION_SECRET_PASS` master override. On
+  success the student is enrolled in **all** selected batches (single bulk insert;
+  `23505` treated as idempotent). No schema change — `student_batches` is already m2m.
+- `/signup` swaps the single `<select>` for a checkbox list; the code field label
+  says "for any one selected batch".
+
+**Security tradeoff (accepted, product decision):** requiring only one matching code
+means a student who knows **one** batch's code can enroll into the **others** they
+select in the same signup, weakening the per-batch gate from D18. This was chosen
+deliberately for UX at a single-teacher center where the teacher controls the codes
+and the roster (and can remove mis-enrollments). The safer alternative — enroll only
+in batches whose code matches — was rejected as too fiddly for the operator. Teacher
+add/remove (D14) remains the authoritative roster control.
+
+**Header batch switcher:**
+- `GET /api/student/batches` returns the student's enrolled batches (RLS-scoped;
+  public-safe fields only, never `secret_pass`).
+- `components/providers/BatchProvider.tsx` (mounted in the root layout inside
+  `AntdProvider`) fetches those batches lazily **only on `/student` routes** and
+  holds the active selection in state + localStorage (`null` = "All batches"). A
+  stale selection (student removed from that batch) reconciles to "All".
+- `AppShell.tsx` renders a header `<select>` **only** when `section === "student"`
+  and the student has **>1** batch. The `/student` dashboard filters its test list
+  by the active batch (rows now carry `batch_id`); one-batch students are unaffected.
+
+**Verify:** `npx tsc --noEmit` clean. Not click-tested (no `.env` in repo).
+
+## D24 — Study Material: teacher PDF notes shared to a batch (F13) — DONE
+
+**Context:** the maintainer asked for a new **Study Material** feature — a teacher
+shares material with a batch; students of that batch can see and download it. For
+now only the **Notes** kind (a PDF with title + description); more kinds come later.
+F12 already stubbed a "Study Material" card on the student home as *Coming soon* —
+this makes it live.
+
+**Storage — private Supabase Storage bucket + signed URLs (not a public bucket, not
+base64-in-DB):**
+- PDF bytes go in a new **private** `study-material` bucket (created idempotently by
+  the migration, guarded by a `DO` block that no-ops if the `storage` schema is
+  absent, so the SQL is safe on a bare Postgres). Metadata (title, description,
+  `file_path`, size, mime, `kind`) lives in a new `study_materials` table.
+- **All object access is server-side via the service role:** uploads on `POST`, and
+  a short-lived (~60 s) **signed URL** minted on download *after* the caller is
+  authorized. A public bucket would leak any file to anyone with the URL; base64 in
+  Postgres bloats the row and the API JSON. Signed URLs keep the bytes private while
+  letting the browser download directly from storage (no proxying multi-MB files
+  through the Node route).
+- **No `storage.objects` RLS policies needed:** because every object op goes through
+  the service-role client (which bypasses storage RLS), the bucket stays closed to
+  the browser and we don't maintain a parallel storage policy set. The
+  `study_materials` **table** still gets full RLS (teacher CRUD; student SELECT
+  enrolled + non-archived), mirroring the app's defense-in-depth pattern (D11).
+
+**Authorization — enrollment re-checked on every download:** the shared
+`GET /api/study-materials/[id]/download` (`requireUser`) loads the row via the
+service role, then authorizes in code: an owning teacher, or a student whose
+`student_batches` contains the material's `batch_id` (else 403/404). Only then is a
+signed URL minted. So access follows enrollment live — remove a student from the
+batch and their next download 403s — and a leaked short-lived URL can't be replayed
+for long.
+
+**Hard-delete (not soft-delete):** the app-wide rule is "soft-delete anything with
+results/history" (AGENTS §2). A study material is just a file — it has no attempts,
+scores, or leaderboard bearing — so `DELETE` **hard-deletes**: remove the storage
+object, then the row. A reserved `archived_at` column (+ `archived_at IS NULL` in
+the student SELECT policy) is added anyway so a future soft-delete (e.g. if
+materials ever gain view history) needs no migration; it's simply unused today.
+
+**Extensibility:** `kind` is free **text** defaulting to `notes`, not an enum — the
+maintainer explicitly plans more material types. A new kind is additive (no
+migration, no enum ALTER); the current UI/API just fix `kind='notes'`.
+
+**Discoverability & nav:** the F12 student-home "Study Material" card goes from
+disabled to routing at `/student/study-material`; `appNav.ts` gains a **Study** tab
+for both admin and student sections (+ app-bar titles). The student list respects
+the header batch switcher (D23) by filtering to the active batch client-side.
+
+**Verify:** `npx tsc --noEmit` clean · `npx eslint` (changed files) clean · `npx
+next build` passes. Not click-tested live (no `.env`/Supabase Storage in the repo);
+the upload/download path needs your own Supabase project with the migration applied.
 
 ## Open items (next passes)
 - When the legacy `/home` browser-write builder is retired, tighten the teacher

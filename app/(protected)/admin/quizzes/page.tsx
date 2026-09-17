@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Card, Tag, Typography, Empty, Space } from "antd";
+import { App, Button, Card, Tag, Typography, Empty, Space, Popconfirm } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { PlusOutlined } from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
@@ -13,7 +13,6 @@ const { Title, Text } = Typography;
 type TestRow = {
   id: string;
   title: string;
-  exam_level: string | null;
   scheduled_at: string | null;
   duration_minutes: number;
   total_questions: number | null;
@@ -30,8 +29,10 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function QuizzesPage() {
   const router = useRouter();
+  const { message } = App.useApp();
   const [rows, setRows] = useState<TestRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -44,21 +45,33 @@ export default function QuizzesPage() {
     })();
   }, []);
 
+  const handleDelete = async (r: TestRow) => {
+    setDeletingId(r.id);
+    try {
+      const res = await fetch(`/api/tests/${r.id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to delete test");
+      setRows((prev) => prev.filter((row) => row.id !== r.id));
+      message.success(
+        data.archived
+          ? "Test archived — it had attempts, so results were kept."
+          : "Test deleted."
+      );
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : "Failed to delete test");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const columns: ColumnsType<TestRow> = [
     {
       title: "Test",
       dataIndex: "title",
       key: "title",
-      render: (t: string, r) => (
+      render: (t: string) => (
         <div>
           <Text strong>{t}</Text>
-          {r.exam_level && (
-            <div>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {r.exam_level}
-              </Text>
-            </div>
-          )}
         </div>
       ),
     },
@@ -91,13 +104,29 @@ export default function QuizzesPage() {
       key: "actions",
       align: "right",
       render: (_, r) => (
-        <Button
-          type="link"
-          style={{ paddingRight: 0 }}
-          onClick={() => router.push(`/admin/quizzes/${r.id}`)}
-        >
-          View results
-        </Button>
+        <Space size={0} wrap>
+          <Button
+            type="link"
+            style={{ paddingRight: 0 }}
+            onClick={() => router.push(`/admin/quizzes/${r.id}`)}
+          >
+            Results
+          </Button>
+          <Button type="link" onClick={() => router.push(`/admin/quizzes/${r.id}/edit`)}>
+            Edit
+          </Button>
+          <Popconfirm
+            title="Delete this test?"
+            description="Tests with student attempts are archived (results kept); others are permanently removed."
+            okText="Delete"
+            okButtonProps={{ danger: true, loading: deletingId === r.id }}
+            onConfirm={() => handleDelete(r)}
+          >
+            <Button type="link" danger style={{ paddingRight: 0 }}>
+              Delete
+            </Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ];

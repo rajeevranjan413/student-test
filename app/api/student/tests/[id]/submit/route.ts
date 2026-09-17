@@ -60,7 +60,7 @@ export async function POST(
       }));
 
     const timing = computeTiming(test.scheduled_at, test.duration_minutes);
-    const deadline = personalDeadline(attempt.started_at, test.duration_minutes, timing);
+    const deadline = personalDeadline(attempt.started_at, test.duration_minutes);
     // Cap the effective submit time at the personal deadline so a slow network
     // (or a late auto-submit) can't game the on-time / late classification.
     const submittedAtMs = Math.min(Date.now(), deadline);
