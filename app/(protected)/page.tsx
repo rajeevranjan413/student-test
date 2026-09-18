@@ -117,34 +117,26 @@ export default function HomePage() {
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
-          <Link href="/" className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-              <GraduationCap className="h-5 w-5" />
+          <Link href="/" className="flex items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+              <GraduationCap className="h-6 w-6" />
             </span>
-            <span className="text-sm font-bold leading-tight sm:text-base">
-              {CENTER_NAME}
+            <span className="flex flex-col leading-tight">
+              <span className="text-base font-bold tracking-tight sm:text-lg">
+                {CENTER_NAME}
+              </span>
+              <span className="text-xs font-medium text-muted-foreground">
+                Competitive Exam Coaching
+              </span>
             </span>
           </Link>
 
-          {/* Small role sign-in buttons — kept compact as requested. */}
           <nav className="flex items-center gap-2">
             <Link
               href="/leaderboard"
-              className="hidden items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-primary sm:inline-flex"
+              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
             >
               <Trophy className="h-4 w-4" /> Results
-            </Link>
-            <Link
-              href="/login/student"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold transition-colors hover:border-primary hover:text-primary sm:text-sm"
-            >
-              <GraduationCap className="h-4 w-4" /> Student
-            </Link>
-            <Link
-              href="/login/teacher"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 sm:text-sm"
-            >
-              <Presentation className="h-4 w-4" /> Teacher
             </Link>
           </nav>
         </div>

@@ -48,7 +48,63 @@ export function AntdProvider({ children }: { children: React.ReactNode }) {
         key={mounted ? "mounted" : "ssr"}
         theme={{
           algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
-          token: { colorPrimary: "#2563eb", borderRadius: 8 },
+          // Premium, product-grade design tokens shared by every antd admin/student
+          // screen. Colours track the Tailwind design tokens in globals.css so the
+          // antd pages and the Tailwind pages read as one system. Card resting
+          // shadows + hover lift are added in globals.css (antd has no resting-card
+          // shadow token). Keep values algorithm-neutral so dark mode stays correct.
+          token: {
+            colorPrimary: isDark ? "#3b82f6" : "#2563eb",
+            colorInfo: isDark ? "#3b82f6" : "#2563eb",
+            borderRadius: 10,
+            borderRadiusLG: 14,
+            borderRadiusSM: 8,
+            controlHeight: 38,
+            fontSize: 14,
+            wireframe: false,
+            fontFamily:
+              "var(--font-sans, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif)",
+            colorBorderSecondary: isDark ? "#27272a" : "#eef1f5",
+          },
+          components: {
+            Card: {
+              borderRadiusLG: 16,
+              paddingLG: 24,
+              headerFontSize: 16,
+              headerHeight: 56,
+            },
+            Button: {
+              controlHeight: 40,
+              controlHeightSM: 32,
+              controlHeightLG: 46,
+              fontWeight: 500,
+              borderRadius: 10,
+              primaryShadow: "0 1px 2px rgba(37,99,235,0.28)",
+              defaultShadow: "none",
+              dangerShadow: "none",
+            },
+            Statistic: {
+              contentFontSize: 30,
+              titleFontSize: 13,
+            },
+            Table: {
+              headerBg: isDark ? "#161618" : "#f8fafc",
+              headerColor: isDark ? "#a1a1aa" : "#64748b",
+              headerSplitColor: "transparent",
+              borderColor: isDark ? "#27272a" : "#eef1f5",
+              rowHoverBg: isDark ? "#161618" : "#f8fafc",
+              cellPaddingBlock: 14,
+              headerBorderRadius: 12,
+            },
+            Input: { controlHeight: 40, borderRadius: 10, paddingBlock: 8 },
+            InputNumber: { controlHeight: 40, borderRadius: 10 },
+            Select: { controlHeight: 40, borderRadius: 10 },
+            DatePicker: { controlHeight: 40, borderRadius: 10 },
+            Segmented: { borderRadius: 10, controlHeight: 38 },
+            Tag: { borderRadiusSM: 8 },
+            Modal: { borderRadiusLG: 16 },
+            Tabs: { titleFontSize: 15 },
+          },
         }}
       >
         {/* component={false} → no wrapping DOM node, so Tailwind pages are untouched,

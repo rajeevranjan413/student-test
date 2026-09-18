@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { App, Button, Card, Tag, Typography, Empty, Space, Popconfirm } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { PlusOutlined } from "@ant-design/icons";
+import { PlusOutlined, FileTextOutlined } from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { ResponsiveTable } from "@/components/layout/ResponsiveTable";
 
@@ -143,11 +143,30 @@ export default function QuizzesPage() {
           marginBottom: 24,
         }}
       >
-        <div>
-          <Title level={3} style={{ margin: 0 }}>
-            Tests
-          </Title>
-          <Text type="secondary">AI-generated, scheduled tests for your batches</Text>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 48,
+              height: 48,
+              flexShrink: 0,
+              borderRadius: 14,
+              fontSize: 22,
+              color: "#fff",
+              background: "linear-gradient(135deg, #34d399 0%, #059669 100%)",
+              boxShadow: "0 10px 22px -10px rgba(5, 150, 105, 0.6)",
+            }}
+          >
+            <FileTextOutlined />
+          </span>
+          <div>
+            <Title level={3} style={{ margin: 0 }}>
+              Tests
+            </Title>
+            <Text type="secondary">AI-generated, scheduled tests for your batches</Text>
+          </div>
         </div>
         <Button
           type="primary"

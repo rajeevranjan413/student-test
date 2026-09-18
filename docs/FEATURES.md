@@ -21,7 +21,8 @@ Feature index:
 | F10 | RLS & data confidentiality | ✅ |
 | F11 | Installable Android app (PWA) | ✅ |
 | F12 | Student home page (banner + sections) | ✅ |
-| F13 | Study Material (teacher PDF notes → batch) | ✅ |
+| F13 | Study Material (subject folders → notes: PDF/image) | ✅ |
+| F14 | Homework (batch-wise: MCQ attempt + PDF/image mark-done) | ✅ |
 
 ---
 
@@ -525,80 +526,201 @@ Material later).
 
 ---
 
-## F13 — Study Material (teacher PDF notes → batch)  ✅
+## F13 — Study Material (subject folders → notes: PDF/image)  ✅
 
-**Goal:** A teacher shares study material with a batch; every student in that batch
-can see it and download it. The first (and today only) material **kind** is
-**Notes** — a PDF with a title + description. The design is deliberately extensible
-so future kinds (videos, links, assignments) slot in without a migration.
+**Goal:** A teacher organizes study material by **subject within a batch**, then
+files **notes** (a PDF **or** an image, with title + description) under a subject.
+Every student in the batch sees the batch's subjects as **folders** and opens a
+folder to read/download all of that subject's notes. `kind` stays free text
+(`notes`) so future material kinds slot in without a migration.
+
+**Model (see `DATA-MODEL.md`):** a `subjects` row (name) hangs off a `batch`; a
+`study_materials` row now hangs off a `subject` (`subject_id`) and keeps its
+denormalized `batch_id` (= the subject's batch) so the existing enrollment-based
+RLS/authorization is unchanged. A note's file may be a PDF or a common image type.
 
 **UI (antd):**
-- **Admin `/admin/study-material`** — an **Upload notes** button opens a modal
-  (Title, Batch `Select`, optional Description, PDF file via antd `Upload` held
-  client-side until submit). Below it, a `ResponsiveTable` of the teacher's
-  materials (title, batch, size, uploaded-at) with **View / Download / Delete**
-  (Delete via `Popconfirm`) and an optional batch filter.
-- **Student `/student/study-material`** — cards (or list) of the notes shared to
-  the student's enrolled batches, each with a batch tag, description, and
-  **View** (inline) + **Download** buttons. Respects the header batch switcher
-  (filters to the active batch when one is selected). Reached from the **Study
-  Material** section card on the student home (F12), now active, and a bottom-nav /
-  app-bar **Study** tab.
+- **Admin `/admin/study-material`** — pick a batch (`Select`); its **subjects**
+  render as folder cards. **Add subject** (name) creates one under the selected
+  batch. Each subject card lists its notes (title, type, size) with **View /
+  Download / Delete** and an **Add notes** action opening a modal (Title, optional
+  Description, **PDF or image** file via antd `Upload` held client-side until
+  submit). **Delete subject** (`Popconfirm`) cascades its notes + files.
+- **Student `/student/study-material`** — a **folder grid of subjects** for the
+  student's enrolled batches (subject name, batch tag, note count). Respects the
+  header batch switcher (filters to the active batch when one is selected). Tapping
+  a folder opens **`/student/study-material/[subjectId]`**, which lists that
+  subject's notes each with description and **View** (inline) + **Download**
+  buttons. Reached from the **Study Material** card on the student home (F12) and a
+  bottom-nav / app-bar **Study** tab.
 
 **Rules (server-enforced):**
-- **Teacher-only writes.** `POST /api/study-materials` (`requireTeacher`,
-  multipart) validates the file is a PDF (`application/pdf`, ≤ 25 MB), verifies the
-  target batch belongs to the teacher, uploads the bytes to the **private**
-  `study-material` bucket via the **service role** (path `<batch_id>/<uuid>.pdf`),
-  then inserts the metadata row. If the row insert fails the uploaded object is
-  removed (no orphan). `DELETE /api/study-materials/[id]` re-checks ownership
-  (404 on mismatch), removes the storage object, then the row — a material carries
-  no results/history, so it is **hard-deleted** (unlike tests/batches). A reserved
-  `archived_at` column + student policy guard exist so a future soft-delete needs
-  no migration.
-- **Students read only their batches.** `GET /api/student/study-materials`
-  (`requireStudent`) lists non-archived materials in the student's enrolled
-  batches. RLS on `study_materials` mirrors this (teacher CRUD; student SELECT
+- **Teacher-only subject writes.** `POST /api/subjects` (`requireTeacher`) verifies
+  the target batch belongs to the teacher, then inserts a subject. `GET
+  /api/subjects?batch=` lists the teacher's subjects (with note counts).
+  `DELETE /api/subjects/[id]` re-checks ownership (404 on mismatch) and
+  **hard-deletes** the subject; its `study_materials` cascade (FK) and their storage
+  objects are removed best-effort first (no orphaned bytes).
+- **Teacher-only note writes.** `POST /api/study-materials` (`requireTeacher`,
+  multipart) takes a **`subjectId`**, validates the file is a PDF or image
+  (`application/pdf` / `image/*`, ≤ 25 MB), verifies the subject → batch belongs to
+  the teacher, uploads the bytes to the **active private storage provider** via the
+  shared `utils/storage.ts` layer (Supabase Storage by default; **Cloudinary** once
+  `STORAGE_PROVIDER=cloudinary`, e.g. after the Supabase free tier fills — D27), and
+  records the chosen `storage_provider` + provider-relative `file_path` on the row
+  (`subject_id` + denormalized `batch_id`). If the insert fails the object is removed
+  (no orphan). `DELETE /api/study-materials/[id]` hard-deletes (ownership-checked):
+  it removes the object **from whichever provider holds it** (per row), then the row.
+- **Students read only their batches.** `GET /api/student/subjects` (`requireStudent`)
+  lists non-archived subjects (with note counts) in the student's enrolled batches
+  (opt. `?batch=`). `GET /api/student/study-materials?subject=` lists a subject's
+  notes after re-checking the student is enrolled in that subject's batch. RLS on
+  `subjects` and `study_materials` mirrors this (teacher CRUD; student SELECT
   enrolled + non-archived).
-- **File access is authorized every time.** The bytes are never public. The shared
+- **File access is authorized every time.** The shared
   `GET /api/study-materials/[id]/download` (`requireUser`) authorizes the caller
   (owning teacher, or a student enrolled in the material's `batch_id`; else 403/404)
-  and only then mints a ~60 s **signed URL** (service role) — `?mode=download`
-  (attachment, original filename) or `?mode=view` (inline). A raw object URL never
-  works, and enrollment is re-checked on each download, so revoking enrollment
-  revokes access.
-- **Additive & extensible:** new table + new bucket only; no existing schema/API
-  changed. `kind` defaults to `notes` and is free text for future material types.
+  and only then mints a short-lived / signed URL **for the file's own provider**
+  (`utils/storage.ts#signedUrl`) — `?mode=download` (attachment, original filename)
+  or `?mode=view` (inline). Enrollment is re-checked each time. (Supabase → a ~60 s
+  signed URL; Cloudinary → an expiring `private_download_url` for download and a
+  signed `authenticated` delivery URL for inline view — D27.)
+- **Additive & idempotent:** new `subjects` table + a **nullable** `subject_id` on
+  `study_materials`; no existing column renamed/dropped, reuses the D24 bucket.
 
 **Acceptance:**
-- [x] Teacher uploads a PDF with title + description for a batch; it appears in the
-      admin list.
-- [x] Non-PDF or oversized upload is rejected server-side; a cross-teacher batch
-      is refused.
-- [x] A student enrolled in the batch sees the material and can **view** and
-      **download** it; the filename is preserved on download.
-- [x] A student **not** enrolled in the batch cannot list or download it (RLS +
-      download-route enrollment check).
-- [x] Deleting a material removes both the row and the stored file.
-- [x] Student home **Study Material** card + a **Study** nav tab route to the page;
-      the header batch switcher filters it.
+- [x] Teacher adds a subject to a batch; it appears as a folder in the admin list.
+- [x] Teacher files a note (PDF **or** image, title + description) under a subject;
+      it appears in that subject's folder.
+- [x] Non-PDF/-image or oversized upload is rejected server-side; a cross-teacher
+      batch/subject is refused.
+- [x] A student enrolled in the batch sees the subject folders and, opening one,
+      can **view** and **download** its notes; the filename is preserved on download.
+- [x] A student **not** enrolled in the batch cannot list the subject or its notes,
+      nor download them (RLS + subject/enrollment re-check).
+- [x] Deleting a note removes its row + file; deleting a subject cascades its notes
+      + files.
+- [x] Student home **Study Material** card + a **Study** nav tab route to the folder
+      view; the header batch switcher filters it.
 - [x] `tsc --noEmit`, lint (changed files), and `next build` pass.
 
-**Code:** `supabase/migrations/20260917160000_study_materials.sql` (table + RLS +
-private bucket), `app/api/study-materials/route.ts` (GET/POST),
+**Code:** `supabase/migrations/20260917160000_study_materials.sql` (bucket + notes
+table, D24) + `supabase/migrations/20260918120000_study_material_subjects.sql`
+(subjects table + RLS + `study_materials.subject_id`),
+`app/api/subjects/route.ts` (GET/POST), `app/api/subjects/[id]/route.ts` (DELETE),
+`app/api/student/subjects/route.ts` (GET),
+`app/api/study-materials/route.ts` (GET/POST — subject-scoped),
 `app/api/study-materials/[id]/route.ts` (DELETE),
 `app/api/study-materials/[id]/download/route.ts` (signed URL),
-`app/api/student/study-materials/route.ts` (GET),
+`app/api/student/study-materials/route.ts` (GET — `?subject=`),
 `app/(protected)/admin/study-material/page.tsx`,
-`app/(protected)/student/study-material/page.tsx`,
-`utils/studyMaterial.ts` (shared types + constants),
+`app/(protected)/student/study-material/page.tsx` (folder grid),
+`app/(protected)/student/study-material/[subjectId]/page.tsx` (notes in a subject),
+`utils/studyMaterial.ts` (shared types + PDF/image constants),
+`utils/storage.ts` (provider-agnostic upload/signed-URL/delete — Supabase | Cloudinary, D27),
+`supabase/migrations/20260918160000_storage_provider.sql` (`storage_provider` column),
 `components/layout/appNav.ts` (Study tab + titles),
 `app/(protected)/student/page.tsx` (F12 card → active). Rationale in
-`DECISIONS.md D24`.
+`DECISIONS.md D24`, `D25`, `D27`.
+
+---
+
+## F14 — Homework (batch-wise: MCQ attempt + PDF/image mark-done)  ✅
+
+**Goal:** A teacher assigns **homework** to a batch. Two kinds, chosen on one
+create screen via **two tabs**:
+- **MCQ** — a question set the teacher builds **manually and/or with AI** (same
+  photo → questions endpoint as Tests, `/api/generate`). Students **attempt &
+  submit** it once; graded server-side (no countdown timer — homework isn't timed).
+- **PDF / Image** — the teacher uploads one file. Students read it and simply
+  **mark it done** (no upload back).
+
+**Model (see `DATA-MODEL.md`):** a `homework` row (`type` = `mcq` | `file`) hangs
+off a `batch`. MCQ questions live in `homework_questions` (mirrors `questions`,
+answer columns column-REVOKEd). One `homework_attempts` row per student per
+homework (UNIQUE) records either a graded MCQ `submitted` attempt or a `done`
+completion. `file` bytes live in a **private** `homework` store, reached only via
+server-minted signed URLs through the shared `utils/storage.ts` layer — Supabase
+Storage by default, **Cloudinary** once `STORAGE_PROVIDER=cloudinary` (each row
+stamps its `storage_provider`, so upload/download/delete route per-file; D27).
+
+**UI (antd):**
+- **Admin `/admin/homework`** — list of homework (cards: title, batch, type,
+  published/draft, question-count or file) with **Create homework** + per-row
+  View/Download (file) + Delete. **`/admin/homework/new`** is the create screen:
+  shared header (title, batch, optional due date, description, publish/draft) then
+  **Tabs**: *MCQ questions* (photo → **Generate** with the AI endpoint, plus **Add
+  manually**; each question editable/removable; optional marks scheme + target) and
+  *PDF / Image* (single-file `Upload`, held client-side until submit). Submit posts
+  to `POST /api/homework` (JSON for MCQ, multipart for file).
+- **Student `/student/homework`** — homework for the student's enrolled batches
+  (respects the header batch switcher), each tagged **To do** / **Done** (+ score
+  for graded MCQ). **`/student/homework/[id]`** = the MCQ attempt form → submit →
+  graded review, or the file view/download → **Mark as done**. Reached from the now
+  **active** Homework card on the student home (F12) and a **Homework** nav tab.
+
+**Rules (server-enforced):**
+- **Teacher-only writes.** `POST /api/homework` (`requireTeacher`) verifies the
+  target batch belongs to the teacher. MCQ: inserts the homework + its questions
+  (rolls back the homework if the question insert fails). File: validates PDF/image
+  (`application/pdf` / `image/*`, ≤ 25 MB), uploads to the private `homework` bucket
+  via the **service role** (path `<batch_id>/<uuid>.<ext>`), then inserts the row
+  (removes the object if the insert fails). `GET /api/homework?batch=` lists the
+  teacher's homework with question counts. `GET /api/homework/[id]` returns the full
+  homework (MCQ answers via the **service role**, column-revoked). `DELETE
+  /api/homework/[id]` hard-deletes when unattempted (questions cascade, file object
+  removed) else **archives** (`archived_at`) so completion/score history survives.
+- **Answer secrecy (mirrors F10).** `homework_questions.correct_answer`/`explanation`
+  are column-REVOKEd from the browser JWT; students read only the question **body**.
+  Scoring reads answers via the **service role** and `homework_attempts` has **no**
+  browser write policy — every attempt/completion is written server-side, so scores
+  can't be forged.
+- **Students read only their batches.** `GET /api/student/homework` lists published,
+  non-archived homework in enrolled batches (opt. `?batch=`) with the student's own
+  attempt. `GET /api/student/homework/[id]` returns the body (no answers) + attempt +
+  a graded review once submitted. `POST …/[id]/submit` grades an MCQ attempt (single
+  attempt: UNIQUE + a pre-check → 409). `POST …/[id]/complete` marks a file homework
+  done (idempotent). `GET /api/homework/[id]/download?mode=view|download` (shared,
+  `requireUser`) authorizes teacher-owns / student-enrolled, then mints a ~60 s
+  signed URL. RLS mirrors all of this.
+- **Additive & idempotent:** three new tables + a new bucket; no existing column
+  renamed/dropped; reuses the RLS helpers + the Study-Material accepted-mime rules.
+
+**Acceptance:**
+- [x] Teacher creates **MCQ** homework for a batch — builds questions **manually
+      and/or via AI** — and it appears in the admin list; students can attempt it.
+- [x] Teacher creates **PDF/Image** homework (file upload) for a batch; non-PDF/-image
+      or oversized upload is rejected server-side; a cross-teacher batch is refused.
+- [x] A student attempts MCQ homework **once** (second submit blocked server-side),
+      graded server-side; correct answers never reach the client before submit.
+- [x] A student **views/downloads** PDF/image homework and **marks it done** (no
+      upload); a student not enrolled in the batch can't list/open it.
+- [x] Deleting unattempted homework removes it (+ file); once attempted it archives
+      (history kept) and disappears from students + the teacher list.
+- [x] Student home **Homework** card + a **Homework** nav tab route to the list; the
+      header batch switcher filters it.
+- [x] `tsc --noEmit`, lint (changed files), and `next build` pass.
+
+**Code:** `supabase/migrations/20260918140000_homework.sql` (tables + RLS + bucket +
+column revokes), `utils/homework.ts` (shared types/constants),
+`utils/studentHomework.ts` (student gate + scoring + mark-done),
+`app/api/homework/route.ts` (GET/POST), `app/api/homework/[id]/route.ts`
+(GET/DELETE), `app/api/homework/[id]/download/route.ts` (signed URL),
+`app/api/student/homework/route.ts` (GET),
+`app/api/student/homework/[id]/route.ts` (GET),
+`app/api/student/homework/[id]/submit/route.ts` (POST — MCQ),
+`app/api/student/homework/[id]/complete/route.ts` (POST — file mark-done),
+`app/(protected)/admin/homework/page.tsx` (list),
+`app/(protected)/admin/homework/new/page.tsx` (two-tab create),
+`app/(protected)/student/homework/page.tsx` (list),
+`app/(protected)/student/homework/[id]/page.tsx` (attempt / file mark-done),
+`components/layout/appNav.ts` (Homework tabs + titles),
+`app/(protected)/student/page.tsx` (F12 card → active). Reuses `/api/generate`
+(F4), `utils/test.ts` scoring, `utils/studyMaterial.ts` mime rules.
 
 ---
 
 ## Build order (remaining)
 
 Seed data + full verification pass.
-(F2/F3/F4/F5/F6/F7/F8/F9/F10/F12/F13 done.)
+(F2/F3/F4/F5/F6/F7/F8/F9/F10/F12/F13/F14 done.)

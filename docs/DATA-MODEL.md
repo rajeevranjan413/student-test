@@ -9,17 +9,21 @@
 
 ```
 auth.users ─1:1─ profiles ─┬─< student_batches >─┬─ batches ─< quizzes ─< questions
-                           │                     │              │
-                           └────< quiz_attempts >┘              └──(attempts reference quizzes)
+                           │                     │      │       │
+                           │                     │      │       └──(attempts reference quizzes)
+                           └────< quiz_attempts >┘      └──< subjects ─< study_materials
 ```
 
 - A **profile** is a user (student or teacher).
 - A **batch** groups students (m2m via `student_batches`) and is owned by a teacher.
 - A **quiz** (= the spec's "Test") belongs to a batch; it has many **questions**.
 - A **quiz_attempt** is one student's single attempt at one quiz.
-- A **study_material** is a file (today a PDF, `kind='notes'`) a teacher shares to a
-  batch; every enrolled student can view/download it. It hangs off `batches` like
-  quizzes do (`batch ─< study_materials`).
+- A **subject** is a folder (name) a teacher adds to a batch (`batch ─< subjects`).
+- A **study_material** is a note file (a PDF **or** an image, `kind='notes'`) a
+  teacher files under a **subject**; every student enrolled in the subject's batch
+  can view/download it. It hangs off a `subject` (`subject ─< study_materials`) and
+  keeps a denormalized `batch_id` (= the subject's batch) so enrollment-based access
+  needs no join.
 
 ## Enums
 
@@ -126,29 +130,111 @@ Email/phone live in `auth.users` (query via service role when the admin needs th
 | `created_at` | timestamptz | |
 | **unique** | (`quiz_id`,`student_id`) | **DB-level single-attempt guarantee** |
 
-### study_materials (teacher-shared resources for a batch)
+### subjects (teacher folders within a batch)
 | Column | Type | Notes |
 |---|---|---|
 | `id` | uuid PK | |
-| `batch_id` | uuid | → batches on delete cascade; the batch the material is shared with |
+| `batch_id` | uuid | → batches on delete cascade; the batch this subject belongs to |
+| `teacher_id` | uuid | → profiles, owner |
+| `name` | text | not null; the folder label shown to students (e.g. "Physics") |
+| `archived_at` | timestamptz | reserved for a future soft-delete; `NULL` = live. Today `DELETE` **hard-deletes** a subject (its `study_materials` cascade), but the column + student policy guard exist so soft-delete can be added without a migration |
+| `created_at` | timestamptz | |
+
+Added by `20260918120000_study_material_subjects.sql`. Deleting a subject cascades
+its `study_materials` rows (FK `ON DELETE CASCADE`); the API removes their storage
+objects first so no bytes are orphaned.
+
+### study_materials (a note filed under a subject)
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `subject_id` | uuid | → subjects on delete cascade; the folder this note lives in. **Nullable** (added later, additive): legacy pre-subject rows have `NULL` and are not shown in any folder |
+| `batch_id` | uuid | → batches on delete cascade; **denormalized** copy of the subject's batch, so enrollment-based RLS/authorization needs no join |
 | `teacher_id` | uuid | → profiles, uploader |
-| `kind` | text | default `notes`. The material **type**; `notes` (a PDF) is the only kind today. Kept as free text (not an enum) so future kinds — videos, links, assignments — are additive with no migration. |
+| `kind` | text | default `notes`. The material **type**; `notes` (a PDF/image) is the only kind today. Kept free text (not an enum) so future kinds — videos, links, assignments — are additive with no migration. |
 | `title` | text | not null; shown to students |
 | `description` | text | optional blurb |
-| `file_path` | text | not null; the object path **inside** the private `study-material` storage bucket (e.g. `<batch_id>/<uuid>.pdf`). Never a public URL. |
+| `storage_provider` | text | not null, default `supabase`; which backend holds the bytes (`supabase` \| `cloudinary`). Set from `STORAGE_PROVIDER` at upload time; every row is self-describing so a provider switch never breaks existing files (D27). |
+| `file_path` | text | not null; **provider-relative** file reference. For `supabase`: the object path inside the private `study-material` bucket (e.g. `<batch_id>/<subject_id>/<uuid>.<ext>`). For `cloudinary`: the private (`authenticated`, `raw`) asset's `public_id` (e.g. `study-material/<batch_id>/<subject_id>/<uuid>.<ext>`). Never a public URL. |
 | `file_name` | text | not null; the original upload filename, used as the download filename |
 | `file_size` | bigint | bytes (for display) |
-| `mime_type` | text | e.g. `application/pdf` |
+| `mime_type` | text | `application/pdf` or an `image/*` type |
 | `archived_at` | timestamptz | reserved for a future soft-delete; `NULL` = live. Today the API **hard-deletes** a material (a file carries no results/history), but the column + student policy guard exist so soft-delete can be added without a migration |
 | `created_at` | timestamptz | |
 
-> **File hosting:** the PDF bytes live in a **private Supabase Storage bucket**
-> (`study-material`), created by the same migration. All object access is
-> server-side through the **service-role** client: uploads on `POST`, and
-> short-lived **signed URLs** (~60s) minted on download after the caller is
-> authorized (owning teacher, or a student enrolled in `batch_id`). The bucket is
-> **not public** — a raw object URL never works, so a signed URL is the only way
-> in, and enrollment is re-checked server-side each time.
+> **File hosting (pluggable — D27):** the note bytes (PDF or image) live in a
+> **private** store — a private **Supabase Storage bucket** (`study-material`) by
+> default, or **Cloudinary** (private `authenticated` `raw` assets) when
+> `STORAGE_PROVIDER=cloudinary` (e.g. after the Supabase free tier fills up). All
+> object access is server-side through `utils/storage.ts`: uploads on `POST` go to
+> the active provider; on download, a short-lived / signed authorized URL is minted
+> for the file's **own** provider (per `storage_provider`) after the caller is
+> authorized (owning teacher, or a student enrolled in `batch_id`). Neither store is
+> public — a raw object URL never works, so an authorized URL is the only way in,
+> and enrollment is re-checked server-side each time. Because each row records its
+> provider, files uploaded before a switch keep serving from where they were stored.
+
+### homework (F14 — a batch-wise assignment)
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `batch_id` | uuid | → batches on delete cascade; the batch this homework is for |
+| `teacher_id` | uuid | → profiles, creator |
+| `type` | text | `mcq` \| `file` (CHECK). `mcq` = questions the student attempts; `file` = a PDF/image the student reads + marks done |
+| `title` | text | not null |
+| `description` | text | optional instructions |
+| `due_at` | timestamptz | optional deadline (informational; nothing hard-locks on it) |
+| `total_questions` | int | MCQ target set at creation (NULL for `file`) |
+| `marks_per_question` | int | default 1 (MCQ scoring) |
+| `negative_marking` | numeric | default 0 (MCQ scoring) |
+| `file_path` | text | `file` only — object path inside the private `homework` bucket (`<batch_id>/<uuid>.<ext>`); never a public URL |
+| `file_name` | text | `file` only — original filename (used on download) |
+| `file_size` | bigint | `file` only — bytes |
+| `mime_type` | text | `file` only — `application/pdf` or an `image/*` type |
+| `storage_provider` | text | `file` only — which backend holds the bytes (`supabase` \| `cloudinary`); added by `20260918160000_storage_provider.sql`, default `supabase` (D27) |
+| `status` | text | `draft` \| `published` (CHECK), default `draft` |
+| `is_published` | bool | mirrored from `status` |
+| `archived_at` | timestamptz | soft-delete once it has attempts (hidden from students via RLS + the teacher list); `NULL` = live |
+| `created_at` | timestamptz | |
+
+> **Deleting homework:** with **no** attempts it is hard-deleted (`homework_questions`
+> cascade; the file object is removed first). With attempts it is **soft-deleted**
+> (`archived_at`) so completion/score history survives — mirrors the test rule (D22).
+
+### homework_questions (MCQ body; mirrors `questions`)
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `homework_id` | uuid | → homework on delete cascade |
+| `question_text` | text | not null |
+| `options` | jsonb | `[{ "key":"A", "text":"..." }]` (4 items) |
+| `correct_answer` | text | correct option **key**. **Column-REVOKEd** from anon/authenticated (F10) |
+| `explanation` | text | optional. **Column-REVOKEd** from anon/authenticated |
+| `difficulty` | text | `easy`\|`medium`\|`hard` |
+| `order` | int | display order |
+| `created_at` | timestamptz | |
+
+> **Answer secrecy** is identical to `questions`: only the **service-role** client
+> reads `correct_answer`/`explanation` (scoring + admin/post-submit review).
+
+### homework_attempts (one per student per homework)
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `homework_id` | uuid | → homework on delete cascade |
+| `student_id` | uuid | → profiles on delete cascade |
+| `status` | text | `submitted` (graded MCQ) \| `done` (file marked complete) (CHECK) |
+| `score` | numeric | MCQ only (NULL for `file`) |
+| `max_score` | numeric | MCQ only |
+| `correct_count` | int | MCQ only |
+| `answers` | jsonb | `[{ "questionId":"…", "optionKey":"A" }]` (MCQ) |
+| `submitted_at` | timestamptz | when submitted / marked done |
+| `created_at` | timestamptz | |
+| **unique** | (`homework_id`,`student_id`) | **DB-level single-attempt/completion guarantee** |
+
+Added by `20260918140000_homework.sql` (three tables + RLS + private `homework`
+bucket). Like `quiz_attempts`, `homework_attempts` has **no** browser write policy —
+all writes go through the service role, so scores/completions can't be forged.
 
 ## Attempt timing model (canonical)
 
@@ -192,7 +278,11 @@ raw browser query can no longer bypass them.
 | `quizzes` | teacher: full CRUD; student: SELECT published, **non-archived** tests in enrolled batches. |
 | `questions` | teacher: full CRUD; student: SELECT body of takeable questions. **`correct_answer`/`explanation` column-REVOKEd from everyone but service role.** |
 | `quiz_attempts` | student/teacher SELECT (own / all). **No client writes** — inserts & updates go through the service role. |
+| `subjects` | teacher: full CRUD; student: SELECT non-archived rows in enrolled batches only. |
 | `study_materials` | teacher: full CRUD. student: SELECT non-archived rows in enrolled batches only. The **file bytes** are in a private storage bucket reached only via server-minted signed URLs (service role), so RLS on this table protects the *metadata* and the download route re-checks enrollment before signing. |
+| `homework` | teacher: full CRUD; student: SELECT published, **non-archived** rows in enrolled batches only. |
+| `homework_questions` | teacher: full CRUD; student: SELECT body of a takeable homework's questions. **`correct_answer`/`explanation` column-REVOKEd from everyone but service role.** |
+| `homework_attempts` | student/teacher SELECT (own / all). **No client writes** — inserts (graded MCQ submit, file mark-done) go through the service role. |
 
 - **Roles:** `anon` (public, no session), `authenticated` (students *and* teachers
   share this one Postgres role — role split is via the `is_teacher()` helper, not

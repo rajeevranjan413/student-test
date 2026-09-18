@@ -59,6 +59,7 @@ const SECTIONS: Section[] = [
     desc: "Assignments from your teacher.",
     icon: SolutionOutlined,
     color: "#7c3aed",
+    href: "/student/homework",
   },
   {
     key: "study",

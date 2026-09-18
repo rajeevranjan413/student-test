@@ -13,7 +13,7 @@ import {
   Typography,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { SearchOutlined } from "@ant-design/icons";
+import { SearchOutlined, TeamOutlined } from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { ResponsiveTable } from "@/components/layout/ResponsiveTable";
 
@@ -139,10 +139,31 @@ export default function StudentsPage() {
 
   return (
     <PageContainer>
-      <Title level={3} style={{ marginTop: 0 }}>
-        Students
-      </Title>
-      <Text type="secondary">Everyone enrolled across your batches.</Text>
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 48,
+            height: 48,
+            flexShrink: 0,
+            borderRadius: 14,
+            fontSize: 22,
+            color: "#fff",
+            background: "linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%)",
+            boxShadow: "0 10px 22px -10px rgba(124, 58, 237, 0.6)",
+          }}
+        >
+          <TeamOutlined />
+        </span>
+        <div>
+          <Title level={3} style={{ margin: 0 }}>
+            Students
+          </Title>
+          <Text type="secondary">Everyone enrolled across your batches.</Text>
+        </div>
+      </div>
 
       <Flex gap={12} wrap style={{ margin: "20px 0" }}>
         <Input

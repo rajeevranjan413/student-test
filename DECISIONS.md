@@ -486,6 +486,102 @@ the header batch switcher (D23) by filtering to the active batch client-side.
 next build` passes. Not click-tested live (no `.env`/Supabase Storage in the repo);
 the upload/download path needs your own Supabase project with the migration applied.
 
+## D25 — Study Material becomes subject-organized; notes accept PDF **or** image (F13) — DONE
+
+**Context:** the maintainer refined F13: instead of a flat list of PDFs on a batch,
+a teacher should **add a subject to a batch** and file notes **subject-wise** (title,
+description, **image or PDF**); students should see subjects as a **folder list** and
+open a folder to read that subject's notes.
+
+**Schema — a `subjects` folder table + a nullable `subject_id`, batch_id kept
+denormalized:**
+- New `subjects(batch_id, teacher_id, name, archived_at)` hangs off `batches`. A
+  `study_materials` row gains `subject_id` (FK, `ON DELETE CASCADE`). It is
+  **nullable** so the migration is additive (any legacy pre-subject row stays valid;
+  such rows simply don't appear in a folder).
+- `study_materials.batch_id` is **kept and denormalized** to the subject's batch
+  rather than dropped. This is deliberate: the D24 RLS (`is_enrolled(batch_id)`) and
+  the download route's enrollment check both key off `batch_id`, so keeping it means
+  **no change** to answer-secrecy-grade access code — the subject is just an extra
+  grouping layer above the same batch-scoped authorization. The server sets
+  `batch_id` from the subject on insert; the client never picks it independently.
+- Reuses the D24 private `study-material` bucket. Object path gains the subject
+  segment and the real extension: `<batch_id>/<subject_id>/<uuid>.<ext>`.
+
+**Files — PDF or image, validated server-side:** `POST /api/study-materials` now
+accepts `application/pdf` **and** common `image/*` types (`png`, `jpeg`, `webp`,
+`gif`, `svg` blocked — script risk), ≤ 25 MB, checked on both the client (fast
+feedback) and the server (authoritative). The extension is derived from the mime so
+the stored object + signed-download filename stay sensible. `kind` stays `notes`.
+
+**Subjects API mirrors the notes API's guards:** `POST /api/subjects` verifies the
+batch belongs to the teacher; `DELETE /api/subjects/[id]` is a hard-delete (a folder
+has no results/history) that first removes its notes' storage objects (best-effort)
+so the FK cascade can't orphan bytes. `GET /api/subjects` / `GET /api/student/subjects`
+return note counts so the folder cards can show them. The student notes list is now
+`?subject=`-scoped and **re-checks** the student is enrolled in that subject's batch
+before returning rows (defense-in-depth over RLS).
+
+**UI:** admin `/admin/study-material` becomes batch → subject folders → notes (Add
+subject / Add notes / delete both). Student `/student/study-material` is a folder
+grid; a new `/student/study-material/[subjectId]` lists a folder's notes. The header
+batch switcher (D23) still filters. Nav/titles updated in `appNav.ts`.
+
+**Verify:** `npx tsc --noEmit` clean · `npx eslint` (changed files) clean · `npx
+next build` passes. Not click-tested live (no `.env`/Supabase Storage in the repo).
+
+## D27 — Dual file storage: Supabase + Cloudinary, switchable per env (F13/F14) — DONE
+
+**Context (maintainer request):** file uploads (Study-Material notes F13, `file`-kind
+Homework F14) go to a private Supabase Storage bucket. The **Supabase free tier caps
+storage**, so once it fills up the maintainer wants NEW uploads to go to **Cloudinary**
+instead — without breaking the files already on Supabase and without a code change per
+upload. "Manage the file upload on both."
+
+**Resolution — a provider-agnostic storage layer + a per-row provider stamp:**
+- **`utils/storage.ts`** abstracts the private store behind three server-only calls —
+  `uploadObject`, `signedUrl`, `removeObjects` (+ `toStoredFile`, `activeUploadProvider`).
+  Both features call these instead of touching `supabase.storage` directly, so a single
+  place knows about both backends. Study-Material (upload/download/delete + subject-delete)
+  and Homework (`file` upload/download/delete) routes were rewired to it; behaviour and
+  the download JSON (`{ url }`) are unchanged.
+- **`STORAGE_PROVIDER` env chooses where NEW uploads land** (`supabase` default |
+  `cloudinary`). Flip it to `cloudinary` when Supabase fills up — no redeploy of logic,
+  just config + the three `CLOUDINARY_*` secrets.
+- **Every file row records its own provider** — new `storage_provider` column on
+  `study_materials` and `homework` (migration `20260918160000_storage_provider.sql`,
+  additive/idempotent, default `supabase`, CHECK-constrained). Download/delete **dispatch
+  per-row**, not per-env, so files uploaded to Supabase before the switch keep serving
+  from Supabase forever, and Cloudinary files serve from Cloudinary — the two coexist.
+- **`file_path` is now provider-relative:** a Supabase object path, or a Cloudinary
+  `public_id`. The DB column and its meaning are otherwise unchanged (additive).
+
+**Cloudinary specifics (why these choices):**
+- Files are uploaded as **private `authenticated` `raw` assets.** `raw` stores the
+  original bytes untouched and dodges Cloudinary's default block on delivering PDFs
+  (which `image`-type PDF delivery hits); `authenticated` means a raw guessed URL 401s —
+  a **signed** URL is required, mirroring Supabase's private bucket. The `public_id`
+  carries the real extension so type/name survive.
+- **Download** mints an **expiring** signed link via `private_download_url` (forces an
+  attachment, preserves the original filename). **Inline view** uses a signed
+  `authenticated` delivery URL. Both are unguessable; as with Supabase, the route
+  **re-authorizes on every request** (owning teacher / enrolled student) before minting.
+- **Tradeoff:** the inline-view delivery URL is signature-protected but not
+  time-limited unless the Cloudinary account enables token-based auth (the download link
+  *does* expire). Acceptable: access is still gated by the authorized route + an
+  unguessable signature, and it matches standard Cloudinary private-asset usage. Also,
+  a `raw` PDF may download rather than render inline in some browsers — the Download
+  button is unaffected. Used the official `cloudinary` SDK (v2) rather than hand-signing
+  URLs, since the signature rules are fiddly and can't be verified here without live keys.
+
+**Security unchanged:** neither store is public; the service role / Cloudinary secrets
+never reach the browser; the download route authorizes before every mint. No RLS change
+(the metadata tables' policies already gate the rows; the bytes were never browser-reachable).
+
+**Verify:** `npx tsc --noEmit` clean · `npx eslint` (changed files) clean · `npx next
+build` passes. Not click-tested live (no `.env`/Supabase/Cloudinary keys in the repo);
+the Cloudinary path needs a Cloudinary account + `STORAGE_PROVIDER=cloudinary`.
+
 ## Open items (next passes)
 - When the legacy `/home` browser-write builder is retired, tighten the teacher
   quizzes/questions write policies from `is_teacher()` to owner-scoped

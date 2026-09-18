@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   Button,
@@ -11,7 +11,6 @@ import {
   Row,
   Space,
   Spin,
-  Statistic,
   Tag,
   Typography,
 } from "antd";
@@ -53,6 +52,85 @@ const STATUS_COLOR: Record<string, string> = {
 
 function fmt(dt: string | null) {
   return dt ? new Date(dt).toLocaleDateString() : "—";
+}
+
+type Tone = { badge: string; shadow: string };
+const TONES: Record<"blue" | "violet" | "emerald", Tone> = {
+  blue: {
+    badge: "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)",
+    shadow: "0 10px 22px -10px rgba(37, 99, 235, 0.6)",
+  },
+  violet: {
+    badge: "linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%)",
+    shadow: "0 10px 22px -10px rgba(124, 58, 237, 0.6)",
+  },
+  emerald: {
+    badge: "linear-gradient(135deg, #34d399 0%, #059669 100%)",
+    shadow: "0 10px 22px -10px rgba(5, 150, 105, 0.6)",
+  },
+};
+
+/** A premium dashboard metric card: a gradient icon badge, big number, and label. */
+function StatCard({
+  icon,
+  label,
+  value,
+  suffix,
+  tone,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: number | string;
+  suffix?: string;
+  tone: keyof typeof TONES;
+  onClick: () => void;
+}) {
+  const t = TONES[tone];
+  return (
+    <Card hoverable onClick={onClick} styles={{ body: { padding: 20 } }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 54,
+            height: 54,
+            flexShrink: 0,
+            borderRadius: 16,
+            fontSize: 24,
+            color: "#fff",
+            background: t.badge,
+            boxShadow: t.shadow,
+          }}
+        >
+          {icon}
+        </span>
+        <div style={{ minWidth: 0 }}>
+          <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>
+            {label}
+          </Text>
+          <div
+            style={{
+              fontSize: 30,
+              fontWeight: 700,
+              lineHeight: 1.15,
+              letterSpacing: "-0.02em",
+            }}
+          >
+            {value}
+            {suffix ? (
+              <Text type="secondary" style={{ fontSize: 15, fontWeight: 500 }}>
+                {" "}
+                {suffix}
+              </Text>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
 }
 
 export default function AdminHomePage() {
@@ -124,32 +202,32 @@ export default function AdminHomePage() {
 
       <Row gutter={[16, 16]} style={{ marginTop: 20 }}>
         <Col xs={24} sm={8}>
-          <Card size="small" hoverable onClick={() => router.push("/admin/batches")}>
-            <Statistic
-              title="Batches"
-              value={batches.length}
-              prefix={<BookOutlined />}
-            />
-          </Card>
+          <StatCard
+            tone="blue"
+            icon={<BookOutlined />}
+            label="Batches"
+            value={batches.length}
+            onClick={() => router.push("/admin/batches")}
+          />
         </Col>
         <Col xs={24} sm={8}>
-          <Card size="small" hoverable onClick={() => router.push("/admin/students")}>
-            <Statistic
-              title="Students"
-              value={students.length}
-              prefix={<TeamOutlined />}
-            />
-          </Card>
+          <StatCard
+            tone="violet"
+            icon={<TeamOutlined />}
+            label="Students"
+            value={students.length}
+            onClick={() => router.push("/admin/students")}
+          />
         </Col>
         <Col xs={24} sm={8}>
-          <Card size="small" hoverable onClick={() => router.push("/admin/quizzes")}>
-            <Statistic
-              title="Published tests"
-              value={publishedCount}
-              suffix={`/ ${tests.length}`}
-              prefix={<FileTextOutlined />}
-            />
-          </Card>
+          <StatCard
+            tone="emerald"
+            icon={<FileTextOutlined />}
+            label="Published tests"
+            value={publishedCount}
+            suffix={`/ ${tests.length}`}
+            onClick={() => router.push("/admin/quizzes")}
+          />
         </Col>
       </Row>
 

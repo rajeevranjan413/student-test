@@ -5,6 +5,7 @@ import {
   Users,
   Trophy,
   Library,
+  ClipboardList,
   type LucideIcon,
 } from "lucide-react";
 
@@ -21,6 +22,7 @@ export const ADMIN_TABS: Tab[] = [
   { href: "/admin", label: "Home", icon: Home },
   { href: "/admin/batches", label: "Batches", icon: BookOpen },
   { href: "/admin/quizzes", label: "Tests", icon: FileText },
+  { href: "/admin/homework", label: "Homework", icon: ClipboardList },
   { href: "/admin/study-material", label: "Study", icon: Library },
   { href: "/admin/students", label: "Students", icon: Users },
 ];
@@ -28,6 +30,7 @@ export const ADMIN_TABS: Tab[] = [
 export const STUDENT_TABS: Tab[] = [
   { href: "/student", label: "Home", icon: Home },
   { href: "/student/tests", label: "Tests", icon: FileText },
+  { href: "/student/homework", label: "Homework", icon: ClipboardList },
   { href: "/student/study-material", label: "Study", icon: Library },
   { href: "/leaderboard", label: "Ranks", icon: Trophy },
 ];
@@ -61,10 +64,13 @@ const EXACT_TITLES: Record<string, string> = {
   "/admin/batches/new": "New batch",
   "/admin/quizzes": "Tests",
   "/admin/quizzes/new": "New test",
+  "/admin/homework": "Homework",
+  "/admin/homework/new": "New homework",
   "/admin/students": "Students",
   "/admin/study-material": "Study Material",
   "/student": "Home",
   "/student/tests": "My Tests",
+  "/student/homework": "Homework",
   "/student/study-material": "Study Material",
   "/leaderboard": "Leaderboard",
 };
@@ -75,6 +81,8 @@ const DYNAMIC_TITLES: [RegExp, string][] = [
   [/^\/admin\/quizzes\/[^/]+$/, "Test"],
   [/^\/admin\/students\/[^/]+$/, "Student"],
   [/^\/student\/tests\/[^/]+$/, "Test"],
+  [/^\/student\/homework\/[^/]+$/, "Homework"],
+  [/^\/student\/study-material\/[^/]+$/, "Notes"],
 ];
 
 /** Human title for the top app bar. Falls back to the brand name. */

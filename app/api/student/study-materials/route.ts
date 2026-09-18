@@ -11,48 +11,69 @@ function handleError(error: unknown) {
   );
 }
 
-// GET /api/student/study-materials — study material shared to the student's
-// enrolled batches (optional ?batch= filter). RLS also scopes this to the student's
-// non-archived, enrolled materials as defense-in-depth.
+function mapRow(m: Record<string, unknown>) {
+  const batches = m.batches as { name?: string } | { name?: string }[] | null;
+  const batchName = Array.isArray(batches) ? batches[0]?.name : batches?.name;
+  return {
+    id: m.id as string,
+    subject_id: (m.subject_id as string | null) ?? null,
+    batch_id: m.batch_id as string,
+    batch_name: batchName ?? null,
+    kind: m.kind as string,
+    title: m.title as string,
+    description: (m.description as string | null) ?? null,
+    file_name: m.file_name as string,
+    file_size: (m.file_size as number | null) ?? null,
+    mime_type: (m.mime_type as string | null) ?? null,
+    created_at: m.created_at as string,
+  };
+}
+
+// GET /api/student/study-materials — notes in a subject folder (`?subject=`, the
+// folder view) or, without it, all notes in the student's enrolled batches
+// (optional `?batch=`). Enrollment is re-checked: a `?subject=` is only honoured
+// when its batch is one the student is enrolled in. RLS mirrors this as
+// defense-in-depth (student SELECTs non-archived, enrolled rows only).
 export async function GET(request: Request) {
   try {
     const { supabase, user } = await requireStudent();
-    const batchFilter = new URL(request.url).searchParams.get("batch");
+    const url = new URL(request.url);
+    const subjectId = url.searchParams.get("subject");
+    const batchFilter = url.searchParams.get("batch");
 
     const batchIds = await enrolledBatchIds(supabase, user.id);
     if (batchIds.length === 0) return NextResponse.json([]);
 
-    const scoped =
-      batchFilter && batchIds.includes(batchFilter) ? [batchFilter] : batchIds;
-
-    const { data, error } = await supabase
+    let query = supabase
       .from("study_materials")
       .select(
-        "id, batch_id, kind, title, description, file_name, file_size, mime_type, created_at, batches(name)"
+        "id, subject_id, batch_id, kind, title, description, file_name, file_size, mime_type, created_at, batches(name)"
       )
-      .in("batch_id", scoped)
       .is("archived_at", null)
       .order("created_at", { ascending: false });
+
+    if (subjectId) {
+      // Verify the subject exists and belongs to an enrolled batch before listing.
+      const { data: subject, error: subjErr } = await supabase
+        .from("subjects")
+        .select("id, batch_id")
+        .eq("id", subjectId)
+        .is("archived_at", null)
+        .maybeSingle();
+      if (subjErr) throw subjErr;
+      if (!subject || !batchIds.includes(subject.batch_id as string))
+        return NextResponse.json([]);
+      query = query.eq("subject_id", subjectId);
+    } else {
+      const scoped =
+        batchFilter && batchIds.includes(batchFilter) ? [batchFilter] : batchIds;
+      query = query.in("batch_id", scoped);
+    }
+
+    const { data, error } = await query;
     if (error) throw error;
 
-    const rows = (data ?? []).map((m) => {
-      const batches = m.batches as { name?: string } | { name?: string }[] | null;
-      const batchName = Array.isArray(batches) ? batches[0]?.name : batches?.name;
-      return {
-        id: m.id,
-        batch_id: m.batch_id,
-        batch_name: batchName ?? null,
-        kind: m.kind,
-        title: m.title,
-        description: m.description ?? null,
-        file_name: m.file_name,
-        file_size: m.file_size ?? null,
-        mime_type: m.mime_type ?? null,
-        created_at: m.created_at,
-      };
-    });
-
-    return NextResponse.json(rows);
+    return NextResponse.json((data ?? []).map(mapRow));
   } catch (error) {
     return handleError(error);
   }

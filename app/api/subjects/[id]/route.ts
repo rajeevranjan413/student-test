@@ -12,8 +12,10 @@ function handleError(error: unknown) {
   );
 }
 
-// DELETE /api/study-materials/[id] — remove a material (storage object + row).
-// A material carries no results/history, so it is hard-deleted (unlike tests).
+// DELETE /api/subjects/[id] — remove a subject (folder) and everything in it.
+// A subject carries no results/history, so it is hard-deleted. Its study_materials
+// rows cascade at the DB (FK ON DELETE CASCADE), but their storage objects do not —
+// so we remove those bytes first (best-effort) to avoid orphaned files.
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -23,24 +25,32 @@ export async function DELETE(
     const { id } = await params;
 
     // Load + ownership check (404 on mismatch, so existence isn't leaked).
-    const { data: material, error } = await supabase
-      .from("study_materials")
-      .select("id, teacher_id, file_path, storage_provider")
+    const { data: subject, error } = await supabase
+      .from("subjects")
+      .select("id, teacher_id")
       .eq("id", id)
       .maybeSingle();
     if (error) throw error;
-    if (!material || material.teacher_id !== user.id)
+    if (!subject || subject.teacher_id !== user.id)
       return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    // Remove the stored object first (best-effort, on whichever provider), then the row.
-    if (material.file_path) {
-      await removeObjects(STUDY_BUCKET, [
-        toStoredFile(material.storage_provider, material.file_path),
-      ]);
+    // Remove the stored objects of this subject's notes before the cascade delete
+    // (each note may live on a different provider — Supabase or Cloudinary).
+    const { data: notes, error: notesErr } = await supabase
+      .from("study_materials")
+      .select("file_path, storage_provider")
+      .eq("subject_id", id);
+    if (notesErr) throw notesErr;
+
+    const files = (notes ?? [])
+      .filter((n) => !!n.file_path)
+      .map((n) => toStoredFile(n.storage_provider, n.file_path as string));
+    if (files.length > 0) {
+      await removeObjects(STUDY_BUCKET, files);
     }
 
     const { error: delErr } = await supabase
-      .from("study_materials")
+      .from("subjects")
       .delete()
       .eq("id", id);
     if (delErr) throw delErr;

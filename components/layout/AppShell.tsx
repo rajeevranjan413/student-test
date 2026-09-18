@@ -7,14 +7,12 @@ import { ArrowLeft, LogOut, MoreVertical } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { NCLogo } from "./NCLogo";
 import { useBatches } from "@/components/providers/BatchProvider";
-import { formatBatchTiming } from "@/utils/batch";
 import {
   homeFor,
   isImmersive,
   isTopLevel,
   sectionFor,
   tabsFor,
-  titleFor,
 } from "./appNav";
 
 /**
@@ -104,10 +102,10 @@ export function AppBar() {
           </span>
         )}
 
-        {/* Title */}
-        <h1 className="min-w-0 flex-1 truncate text-lg font-semibold text-foreground">
-          {titleFor(pathname)}
-        </h1>
+        {/* Spacer — the changing page title was intentionally removed; the
+            leading logo/back arrow is enough identity, and this keeps the
+            trailing actions right-aligned. */}
+        <div className="min-w-0 flex-1" />
 
         {/* Desktop inline tabs (mobile uses the bottom nav) */}
         <nav className="mr-1 hidden items-center gap-1 md:flex">
@@ -133,25 +131,19 @@ export function AppBar() {
 
         {/* Trailing actions */}
         {showBatchSwitcher && (
-          <label className="mr-1 flex items-center" title="Switch batch">
-            <span className="sr-only">Switch batch</span>
-            <select
-              value={activeBatchId ?? ""}
-              onChange={(e) => setActiveBatchId(e.target.value || null)}
-              className="max-w-[9rem] truncate rounded-full border border-border bg-muted px-3 py-1.5 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:max-w-[12rem]"
-            >
-              <option value="">All batches</option>
-              {batches.map((b) => {
-                const timing = formatBatchTiming(b.start_time, b.end_time);
-                return (
-                  <option key={b.id} value={b.id}>
-                    {b.name ?? "Batch"}
-                    {timing ? ` (${timing})` : ""}
-                  </option>
-                );
-              })}
-            </select>
-          </label>
+          <select
+            aria-label="Switch batch"
+            value={activeBatchId ?? ""}
+            onChange={(e) => setActiveBatchId(e.target.value || null)}
+            className="mr-1 max-w-[10rem] truncate rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="">All batches</option>
+            {batches.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name ?? "Batch"}
+              </option>
+            ))}
+          </select>
         )}
         <ThemeToggle />
 

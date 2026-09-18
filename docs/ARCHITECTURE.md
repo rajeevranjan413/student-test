@@ -13,7 +13,7 @@
 | Icons | `lucide-react` (Tailwind pages), `@ant-design/icons` (antd pages) |
 | Theming | `next-themes` (class strategy); antd algorithm synced via `AntdProvider` |
 | Auth + DB | Supabase (Postgres) via `@supabase/ssr` (cookie sessions) |
-| Files | Supabase **Storage** (private `study-material` bucket) for shared PDFs; accessed server-side via the service role + short-lived signed URLs (F13) |
+| Files | **Pluggable private storage** (`utils/storage.ts`): Supabase **Storage** (private buckets) by default, **Cloudinary** (private `authenticated` assets) once `STORAGE_PROVIDER=cloudinary` — for Study-Material notes (F13) and file-homework (F14). Both accessed server-side only, via short-lived / signed authorized URLs; each file row records its own provider so a switch is non-breaking (D27) |
 | AI | Google Gemini via `@google/generative-ai` (server-side only) |
 | PWA | `app/manifest.ts` (`/manifest.webmanifest`) + `public/sw.js` service worker → installable Android app (F11). SW never caches `/api/*`, `/auth`, or cross-origin, so data/sessions stay live. |
 
@@ -82,8 +82,10 @@ policy. Full policy map in `DATA-MODEL.md → Row-Level Security`.
 | `/admin/students`, `/admin/students/[id]` | `(protected)` | teacher | done (antd) — roster + student detail |
 | `/student` | `(protected)` | student | done (antd) — **home** hub: banner slider + section cards (F12) |
 | `/student/tests` | `(protected)` | student | done (antd) — test list; `/student/tests/[id]` take/resume/result (F6) |
-| `/admin/study-material` | `(protected)` | teacher | done (antd) — upload/list/delete PDF notes per batch (F13) |
-| `/student/study-material` | `(protected)` | student | done (antd) — view/download notes for enrolled batches (F13) |
+| `/admin/homework`, `/admin/homework/new` | `(protected)` | teacher | done (antd) — list + two-tab create (MCQ manual/AI, PDF/image) (F14) |
+| `/student/homework`, `/student/homework/[id]` | `(protected)` | student | done (antd) — list + MCQ attempt/submit or file view/mark-done (F14) |
+| `/admin/study-material` | `(protected)` | teacher | done (antd) — manage subjects per batch + file PDF/image notes under a subject (F13) |
+| `/student/study-material` | `(protected)` | student | done (antd) — subject folder grid; `/student/study-material/[subjectId]` lists a subject's notes (F13) |
 | `/teacher` | `(protected)` | teacher | retired mock → redirects to `/admin` |
 | `/home` | — | teacher | legacy AI builder (superseded by wizard) |
 | `/leaderboard` | — | public | done (antd) — ranked, batch filter |
@@ -108,10 +110,20 @@ policy. Full policy map in `DATA-MODEL.md → Row-Level Security`.
 | `/student/tests/[id]` | GET, PATCH | student | take-page bootstrap + answer autosave |
 | `/student/tests/[id]/start` | POST | student | start (idempotent resume) an attempt |
 | `/student/tests/[id]/submit` | POST | student | submit + server-side scoring |
-| `/study-materials` | GET, POST | teacher | list own materials (opt. `?batch=`) / upload a PDF (multipart) + insert row |
-| `/study-materials/[id]` | DELETE | teacher | delete a material (removes the storage object + row; ownership-checked) |
+| `/homework` | GET, POST | teacher | list own homework (opt. `?batch=`) / create (JSON = MCQ + questions; multipart = file) |
+| `/homework/[id]` | GET, DELETE | teacher | full homework (MCQ answers via service role) / delete or **archive** |
+| `/homework/[id]/download` | GET | teacher **or** enrolled student | authorize, then return a short-lived signed URL for a `file` homework (`?mode=view\|download`) |
+| `/student/homework` | GET | student | published homework in enrolled batches + own attempt (opt. `?batch=`) |
+| `/student/homework/[id]` | GET | student | homework body (MCQ without answers) + attempt + graded review |
+| `/student/homework/[id]/submit` | POST | student | grade & record an MCQ attempt (single attempt) |
+| `/student/homework/[id]/complete` | POST | student | mark a `file` homework done (idempotent) |
+| `/subjects` | GET, POST | teacher | list own subjects + note counts (opt. `?batch=`) / add a subject to a batch |
+| `/subjects/[id]` | DELETE | teacher | delete a subject (cascades its notes + storage objects; ownership-checked) |
+| `/study-materials` | GET, POST | teacher | list own notes (opt. `?subject=`/`?batch=`) / file a PDF-or-image note under a `subjectId` (multipart) |
+| `/study-materials/[id]` | DELETE | teacher | delete a note (removes the storage object + row; ownership-checked) |
 | `/study-materials/[id]/download` | GET | teacher **or** enrolled student | authorize, then return a short-lived signed URL (`?mode=view\|download`) |
-| `/student/study-materials` | GET | student | materials for the student's enrolled batches (opt. `?batch=`) |
+| `/student/subjects` | GET | student | subject folders + note counts for the student's enrolled batches (opt. `?batch=`) |
+| `/student/study-materials` | GET | student | notes in a subject (`?subject=`) after re-checking enrollment; opt. `?batch=` |
 
 **Planned (see `FEATURES.md`):** — (all F1–F13 shipped; seed data + live verification remain).
 
@@ -158,6 +170,7 @@ utils/auth.ts            server auth guards (requireTeacher / requireUser)
 utils/constants.ts       EXAM_LEVELS, LATE_GRACE_MINUTES, difficulty colors
 utils/supabase/*         browser / server / middleware clients (user-scoped, RLS)
 utils/supabase/admin.ts  service-role client (server-only, bypasses RLS)
+utils/storage.ts         provider-agnostic private file store (Supabase | Cloudinary) — upload/signedUrl/remove (D27)
 utils/test.ts            pure timing/scoring + deriveOutcome (shared by reporting)
 utils/students.ts        server-only email/phone lookup from auth.users (teacher)
 components/providers/    ThemeProvider (next-themes), AntdProvider (antd SSR+theme)
