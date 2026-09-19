@@ -195,45 +195,51 @@ export function BottomNav() {
       ? pathname === href
       : pathname.startsWith(href) && href !== homeFor(pathname);
 
+  // Dynamically size indicators if tabs exceed 4
+  const isDense = tabs.length > 4;
+
   return (
     <>
-      {/* Fixed bar — mobile only; desktop uses the app-bar inline tabs. */}
       <nav
         className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/90 backdrop-blur md:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <ul className="mx-auto flex max-w-lg items-stretch justify-around">
+        <ul className="mx-auto flex max-w-lg items-stretch justify-around px-1">
           {tabs.map((t) => {
             const active = isActive(t.href);
             const Icon = t.icon;
             return (
-              <li key={t.href} className="flex-1">
+              <li key={t.href} className="min-w-0 flex-1">
                 <Link
                   href={t.href}
                   aria-current={active ? "page" : undefined}
-                  className={`tap flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition-colors ${
-                    active ? "text-primary" : "text-muted-foreground"
-                  }`}
+                  className={`tap flex flex-col items-center justify-center gap-0.5 py-1.5 text-center font-medium transition-colors ${
+                    isDense ? "text-[10px]" : "text-[11px]"
+                  } ${active ? "text-primary" : "text-muted-foreground"}`}
                 >
                   <span
-                    className={`flex h-8 w-16 items-center justify-center rounded-full transition-colors ${
-                      active ? "bg-primary/12" : ""
-                    }`}
+                    className={`flex items-center justify-center rounded-full transition-colors ${
+                      isDense ? "h-7 w-11" : "h-8 w-14"
+                    } ${active ? "bg-primary/12" : ""}`}
                   >
-                    <Icon className="h-5 w-5" strokeWidth={active ? 2.4 : 2} />
+                    <Icon
+                      className={isDense ? "h-4 w-4" : "h-5 w-5"}
+                      strokeWidth={active ? 2.4 : 2}
+                    />
                   </span>
-                  {t.label}
+                  <span className="w-full truncate px-0.5">
+                    {t.label}
+                  </span>
                 </Link>
               </li>
             );
           })}
         </ul>
       </nav>
-      {/* Flow spacer so page content can scroll clear of the fixed bar
-          (must match the bar's own height + safe-area inset). */}
+      {/* Spacer matching adjusted bar height (58px) + safe area */}
       <div
         className="md:hidden"
-        style={{ height: "calc(64px + env(safe-area-inset-bottom))" }}
+        style={{ height: "calc(58px + env(safe-area-inset-bottom))" }}
         aria-hidden
       />
     </>
