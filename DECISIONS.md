@@ -714,6 +714,46 @@ push needs a VAPID keypair (`npx web-push generate-vapid-keys`) in `.env.local` 
 cron hitting `/api/cron/notify` with `CRON_SECRET`; not click-tested here (no keys in
 the repo).
 
+## D31 — Manual question editor: tabbed text/image for question + explanation (F3/F14) — DONE
+
+**Context (maintainer request):** in the manual question editor modal, let a question
+be entered as **basic formatted text (bold + bullet/numbered list)** *or* as an
+**image** (horizontal screenshots of a printed question), with a **tab switch**
+between the two; make the **explanation** likewise text-or-image; keep the four
+**options** as text but tidy their UI/UX; and share one editor everywhere it appears.
+
+**Why store content in the existing `question_text`/`explanation` text columns (no
+schema change):**
+- The content is **self-describing**, so no new column or migration is needed and the
+  API/JSON contract stays unchanged (additive rules honoured):
+  - an **image** is stored as an inline `data:image/…;base64,…` **data URI** (detected
+    by the `data:image/` prefix);
+  - **formatted text** is stored as a small **HTML subset** (`b/strong/i/em/u/p/br/
+    ul/ol/li`) detected by the presence of those tags;
+  - anything else (all legacy + AI-generated questions) is treated as **plain text**
+    and rendered exactly as before — full backward compatibility.
+- **Data-URI (not upload-to-storage)** was chosen deliberately (maintainer decision):
+  question images aren't secret (the whole question body is already shown to enrolled
+  students), so the private signed-URL layer (`utils/storage.ts`, D27) — built for
+  repeated inline display it does not suit — is overkill. Inlining keeps it fully
+  self-contained (no bucket, no endpoint, works offline in the PWA). Trade-off: larger
+  rows (~100 KB–1 MB per image); the editor caps images at **2 MB** to bound this.
+
+**Security — render-time sanitize (`utils/richText.ts#sanitizeHtml`):** stored HTML is
+teacher-authored, but is still sanitized **at render** to a strict **attribute-free
+allowlist** (script/style/comments dropped; every surviving tag keeps only its name),
+so no event handlers or `javascript:` URLs can ride in. Options remain plain React text
+(auto-escaped). Answer secrecy (F10) is untouched — `explanation` (text *or* image data
+URI) stays column-REVOKEd, so an explanation image never reaches a student mid-attempt.
+
+**One shared component:** the previously **triplicated** `EditQuestionModal` (test
+wizard, test edit, homework create) is replaced by
+`components/admin/QuestionEditorModal.tsx` (+ `RichTextInput`), and all six question/
+explanation **render sites** (admin previews + student take/review) go through
+`components/QuestionContent.tsx`.
+
+**Verify:** `npx tsc --noEmit` · `npx eslint` (changed files) · `npx next build`.
+
 ## Open items (next passes)
 - When the legacy `/home` browser-write builder is retired, tighten the teacher
   quizzes/questions write policies from `is_teacher()` to owner-scoped
