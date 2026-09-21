@@ -2,11 +2,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card, Col, Empty, Row, Spin, Tag, Typography } from "antd";
+import { Card, Col, Empty, Flex, Row, Spin, Tag, Typography } from "antd";
 import { FolderOpenOutlined, RightOutlined } from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { useBatches } from "@/components/providers/BatchProvider";
 import type { Subject } from "@/utils/studyMaterial";
+import {
+  markSeen,
+  snapshotStatus,
+  subjectSignature,
+  type SeenStatus,
+} from "@/utils/whatsNew";
+import { NewBadge } from "@/components/student/NewBadge";
 
 const { Title, Text } = Typography;
 
@@ -21,6 +28,7 @@ export default function StudentStudyMaterialPage() {
   const { activeBatchId } = useBatches();
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
+  const [statusById, setStatusById] = useState<Record<string, SeenStatus>>({});
 
   // loading is set false only after the awaited fetch (never synchronously) so
   // this is safe to call from the effect.
@@ -30,8 +38,18 @@ export default function StudentStudyMaterialPage() {
         ? `/api/student/subjects?batch=${encodeURIComponent(batch)}`
         : "/api/student/subjects";
       const res = await fetch(url);
-      if (res.ok) setSubjects(await res.json());
-      else setSubjects([]);
+      if (res.ok) {
+        const data = (await res.json()) as Subject[];
+        // A folder's signature folds in its latest note activity + note count, so an
+        // added/edited note flags it "Updated" (F16).
+        const sigs = data.map((s) => ({
+          id: s.id,
+          sig: subjectSignature(s.activity_at ?? null, s.note_count),
+        }));
+        setStatusById(snapshotStatus("study", sigs).statusById);
+        setSubjects(data);
+        markSeen("study", sigs);
+      } else setSubjects([]);
     } finally {
       setLoading(false);
     }
@@ -92,9 +110,12 @@ export default function StudentStudyMaterialPage() {
                     <FolderOpenOutlined />
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <Text strong style={{ fontSize: 16, display: "block" }}>
-                      {s.name}
-                    </Text>
+                    <Flex align="center" gap={8} wrap>
+                      <Text strong style={{ fontSize: 16 }}>
+                        {s.name}
+                      </Text>
+                      <NewBadge status={statusById[s.id]} />
+                    </Flex>
                     <div style={{ marginTop: 2 }}>
                       {s.batch_name ? <Tag>{s.batch_name}</Tag> : null}
                       <Text type="secondary" style={{ fontSize: 12 }}>

@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     const { data, error } = await supabase
       .from("homework")
       .select(
-        "id, batch_id, type, title, description, due_at, created_at, batches(name), homework_questions(count)"
+        "id, batch_id, type, title, description, due_at, created_at, updated_at, batches(name), homework_questions(count)"
       )
       .in("batch_id", scoped)
       .is("archived_at", null)
@@ -79,6 +79,7 @@ export async function GET(request: Request) {
         question_count: counts?.[0]?.count ?? 0,
         files: filesById.get(h.id as string) ?? [],
         created_at: h.created_at as string,
+        updated_at: (h.updated_at as string | null) ?? null,
         attempt: attemptByHw.get(h.id as string) ?? null,
       };
     });

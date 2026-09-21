@@ -20,6 +20,13 @@ import {
 } from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { useBatches } from "@/components/providers/BatchProvider";
+import {
+  itemSignature,
+  markSeen,
+  snapshotStatus,
+  type SeenStatus,
+} from "@/utils/whatsNew";
+import { NewBadge } from "@/components/student/NewBadge";
 
 const { Title, Text } = Typography;
 
@@ -43,6 +50,8 @@ type StudentTestRow = {
   max_score: number | null;
   correct_count: number | null;
   is_late: boolean;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 function fmt(dt: string | null) {
@@ -62,6 +71,9 @@ export default function StudentTests() {
   const [rows, setRows] = useState<StudentTestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Per-test new/updated status vs. what this student last saw (F16). Snapshotted
+  // on load, then the section is marked seen so the badge clears next visit.
+  const [statusById, setStatusById] = useState<Record<string, SeenStatus>>({});
 
   // Filter by the header's active batch (null = All batches). Since a stale
   // selection is reconciled to null in BatchProvider, filtering never hides
@@ -80,7 +92,11 @@ export default function StudentTests() {
           setError((await res.json().catch(() => ({}))).error ?? "Failed to load tests.");
           return;
         }
-        setRows(await res.json());
+        const data = (await res.json()) as StudentTestRow[];
+        const items = data.map((r) => ({ id: r.id, sig: itemSignature(r) }));
+        setStatusById(snapshotStatus("tests", items).statusById);
+        setRows(data);
+        markSeen("tests", items);
       } catch {
         setError("Failed to load tests.");
       } finally {
@@ -163,6 +179,7 @@ export default function StudentTests() {
                     <Text strong style={{ fontSize: 16 }}>
                       {r.title}
                     </Text>
+                    <NewBadge status={statusById[r.id]} />
                     <Tag color={tag.color}>{tag.label}</Tag>
                     {r.state === "submitted" && r.is_late && <Tag color="volcano">Late</Tag>}
                   </Flex>

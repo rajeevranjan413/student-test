@@ -126,6 +126,7 @@ policy. Full policy map in `DATA-MODEL.md → Row-Level Security`.
 | `/study-materials/[id]/download` | GET | teacher **or** enrolled student | authorize, then return a short-lived signed URL (`?mode=view\|download`) |
 | `/student/subjects` | GET | student | subject folders + note counts for the student's enrolled batches (opt. `?batch=`) |
 | `/student/study-materials` | GET | student | notes in a subject (`?subject=`) after re-checking enrollment; opt. `?batch=` |
+| `/student/whats-new` | GET | student | activity signatures (`{id, sig}` per item, no titles/answers) for the home "new/updated" alert counts (F16) |
 | `/push/subscribe` | POST, DELETE | any user | register / remove this device's Web Push subscription (F15; `user_id` from the session, never the client) |
 | `/cron/notify` | GET | `CRON_SECRET` | scheduler hook: push a "test is live" reminder for tests whose `scheduled_at` just passed (F15) |
 

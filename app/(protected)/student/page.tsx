@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card, Carousel, Flex, Tag, Typography } from "antd";
+import { Badge, Card, Carousel, Flex, Tag, Typography } from "antd";
 import {
   FileTextOutlined,
   ReadOutlined,
@@ -11,6 +12,11 @@ import {
 import type { ComponentType } from "react";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { PushToggle } from "@/components/pwa/PushToggle";
+import {
+  countUnseen,
+  type NewItem,
+  type WhatsNewSection,
+} from "@/utils/whatsNew";
 
 const { Title, Text } = Typography;
 
@@ -72,8 +78,30 @@ const SECTIONS: Section[] = [
   },
 ];
 
+// The whats-new endpoint's payload — activity signatures per section (F16).
+type WhatsNew = Record<WhatsNewSection, NewItem[]>;
+
 export default function StudentHome() {
   const router = useRouter();
+  // Unseen (new + updated) counts per section — the alert badges on the cards.
+  const [counts, setCounts] = useState<Partial<Record<WhatsNewSection, number>>>({});
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/student/whats-new");
+        if (!res.ok) return;
+        const data = (await res.json()) as WhatsNew;
+        setCounts({
+          tests: countUnseen("tests", data.tests ?? []),
+          homework: countUnseen("homework", data.homework ?? []),
+          study: countUnseen("study", data.study ?? []),
+        });
+      } catch {
+        // Best-effort: no badges if the signal can't be fetched.
+      }
+    })();
+  }, []);
 
   return (
     <PageContainer max={960}>
@@ -121,6 +149,7 @@ export default function StudentHome() {
         {SECTIONS.map((s) => {
           const Icon = s.icon;
           const active = Boolean(s.href);
+          const alert = counts[s.key as WhatsNewSection] ?? 0;
           return (
             <Card
               key={s.key}
@@ -135,23 +164,32 @@ export default function StudentHome() {
               styles={{ body: { padding: 20 } }}
             >
               <Flex align="flex-start" justify="space-between" gap={12}>
-                <span
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: 44,
-                    height: 44,
-                    borderRadius: 12,
-                    background: `${s.color}1a`,
-                    color: s.color,
-                    fontSize: 22,
-                  }}
-                >
-                  <Icon />
-                </span>
+                <Badge count={active ? alert : 0} overflowCount={99} offset={[2, -2]}>
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 44,
+                      height: 44,
+                      borderRadius: 12,
+                      background: `${s.color}1a`,
+                      color: s.color,
+                      fontSize: 22,
+                    }}
+                  >
+                    <Icon />
+                  </span>
+                </Badge>
                 {active ? (
-                  <RightOutlined style={{ color: "#9ca3af" }} />
+                  <Flex align="center" gap={8}>
+                    {alert > 0 && (
+                      <Tag color={s.color} style={{ marginInlineEnd: 0 }}>
+                        {alert} new
+                      </Tag>
+                    )}
+                    <RightOutlined style={{ color: "#9ca3af" }} />
+                  </Flex>
                 ) : (
                   <Tag color="default" style={{ marginInlineEnd: 0 }}>
                     Coming soon

@@ -754,6 +754,36 @@ explanation **render sites** (admin previews + student take/review) go through
 
 **Verify:** `npx tsc --noEmit` · `npx eslint` (changed files) · `npx next build`.
 
+## D32 — "What's new" for students: client-seen registry, not per-student DB state (F16)
+Students asked to *know* when the teacher adds or changes a test / homework / study
+note — an alert count on the home section cards and a New/Updated tag on the list
+cards. Two ways to track "has this student seen it": a server-side per-student read
+table, or a client-side seen registry. We chose the **client registry**:
+- Each item carries an **activity signature** = `greatest(created_at, updated_at)`
+  (for a study **folder**, the latest note activity + note count). To make "updated"
+  detectable at all, an additive migration (`20260921200000_updated_at_tracking.sql`)
+  gives `quizzes`/`homework`/`study_materials` an `updated_at` column kept current by a
+  shared `set_updated_at()` BEFORE-UPDATE trigger. "Added" already came from `created_at`.
+- The browser remembers, per section, the signature it last saw per item id in
+  **localStorage** (`utils/whatsNew.ts`). new = id unseen; updated = id seen but
+  signature changed; else seen. `markSeen` **merges** (never rebuilds) so marking a
+  batch-filtered list seen can't drop another batch's state.
+- `GET /api/student/whats-new` returns only `{id, sig}` per item (no titles/answers)
+  for the **home** alert counts; the existing list endpoints now also emit
+  `updated_at` / `activity_at` so the list pages compute the **same** signatures and
+  tag individual cards. Opening a section snapshots the tags for that visit, then marks
+  it seen so the badge clears next time.
+
+**Why client-side:** it's purely presentational (mirrors F12's "home is presentational"
+stance), needs no per-student write path, no new RLS, and no extra table — the unseen
+state is inherently per-device and low-stakes (a wrong badge is cosmetic). Trade-off:
+"seen" doesn't sync across a student's devices (each device tracks its own). Acceptable
+for an alert count; if cross-device sync is ever wanted, add a `seen` table without
+touching the UI (the signature contract stays). No answers or private data ever ride in
+the signatures — F10 secrecy is untouched.
+
+**Verify:** `npx tsc --noEmit` · `npx eslint` (changed files) · `npx next build`.
+
 ## Open items (next passes)
 - When the legacy `/home` browser-write builder is retired, tighten the teacher
   quizzes/questions write policies from `is_teacher()` to owner-scoped

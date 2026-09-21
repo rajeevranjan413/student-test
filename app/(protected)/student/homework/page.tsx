@@ -14,6 +14,13 @@ import { PageContainer } from "@/components/layout/PageContainer";
 import { useBatches } from "@/components/providers/BatchProvider";
 import { isImageMime } from "@/utils/studyMaterial";
 import type { StudentHomeworkItem } from "@/utils/homework";
+import {
+  itemSignature,
+  markSeen,
+  snapshotStatus,
+  type SeenStatus,
+} from "@/utils/whatsNew";
+import { NewBadge } from "@/components/student/NewBadge";
 
 const { Title, Text } = Typography;
 
@@ -27,6 +34,7 @@ export default function StudentHomeworkPage() {
   const { activeBatchId } = useBatches();
   const [items, setItems] = useState<StudentHomeworkItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [statusById, setStatusById] = useState<Record<string, SeenStatus>>({});
 
   const load = useCallback(async (batch: string | null) => {
     try {
@@ -34,8 +42,13 @@ export default function StudentHomeworkPage() {
         ? `/api/student/homework?batch=${encodeURIComponent(batch)}`
         : "/api/student/homework";
       const res = await fetch(url);
-      if (res.ok) setItems(await res.json());
-      else setItems([]);
+      if (res.ok) {
+        const data = (await res.json()) as StudentHomeworkItem[];
+        const sigs = data.map((h) => ({ id: h.id, sig: itemSignature(h) }));
+        setStatusById(snapshotStatus("homework", sigs).statusById);
+        setItems(data);
+        markSeen("homework", sigs);
+      } else setItems([]);
     } finally {
       setLoading(false);
     }
@@ -100,6 +113,7 @@ export default function StudentHomeworkPage() {
                         {h.title}
                       </Text>
                       <div style={{ marginTop: 4 }}>
+                        <NewBadge status={statusById[h.id]} />
                         {h.batch_name ? <Tag>{h.batch_name}</Tag> : null}
                         <Tag color={h.type === "mcq" ? "purple" : "blue"}>
                           {h.type === "mcq" ? "MCQ" : "PDF / Image"}

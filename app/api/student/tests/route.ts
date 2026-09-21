@@ -29,7 +29,7 @@ export async function GET() {
     const { data: quizzes, error: qErr } = await supabase
       .from("quizzes")
       .select(
-        "id, title, scheduled_at, duration_minutes, total_questions, marks_per_question, negative_marking, passing_marks, status, is_published, batch_id, batches(name), questions(count)"
+        "id, title, scheduled_at, duration_minutes, total_questions, marks_per_question, negative_marking, passing_marks, status, is_published, batch_id, created_at, updated_at, batches(name), questions(count)"
       )
       .in("batch_id", batchIds)
       .or("status.eq.published,status.eq.closed,is_published.eq.true")
@@ -78,6 +78,8 @@ export async function GET() {
         negative_marking: Number(q.negative_marking ?? 0),
         passing_marks: q.passing_marks ?? null,
         question_count: counts?.[0]?.count ?? 0,
+        created_at: q.created_at ?? null,
+        updated_at: q.updated_at ?? null,
         phase,
         state,
         score: attempt?.status === "submitted" ? Number(attempt.score) : null,

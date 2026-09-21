@@ -88,6 +88,7 @@ Email/phone live in `auth.users` (query via service role when the admin needs th
 | `is_published` | bool | legacy flag, mirrored from `status` |
 | `archived_at` | timestamptz | set when a test with attempts is soft-deleted; hidden from students (RLS) and the teacher list. `NULL` = live |
 | `created_at` | timestamptz | |
+| `updated_at` | timestamptz | bumped on every UPDATE by the `set_updated_at()` trigger (F16). The student "what's new" signal = `greatest(created_at, updated_at)` |
 
 > **Deleting a test:** a test with **no** attempts is hard-deleted (its `questions`
 > cascade). A test that already has `quiz_attempts` is **soft-deleted** by setting
@@ -168,6 +169,7 @@ objects first so no bytes are orphaned.
 | `mime_type` | text | **legacy**: the single inline file's mime |
 | `archived_at` | timestamptz | reserved for a future soft-delete; `NULL` = live. Today the API **hard-deletes** a material (a file carries no results/history), but the column + student policy guard exist so soft-delete can be added without a migration |
 | `created_at` | timestamptz | |
+| `updated_at` | timestamptz | bumped on every UPDATE by the `set_updated_at()` trigger (F16); a folder's "new notes" signal folds in its notes' `greatest(created_at, updated_at)` + count |
 
 > **Multiple files (D28):** a note now owns **many** files via the child table
 > `study_material_files` (below). New uploads write only child rows; the inline
@@ -220,6 +222,7 @@ objects first so no bytes are orphaned.
 | `is_published` | bool | mirrored from `status` |
 | `archived_at` | timestamptz | soft-delete once it has attempts (hidden from students via RLS + the teacher list); `NULL` = live |
 | `created_at` | timestamptz | |
+| `updated_at` | timestamptz | bumped on every UPDATE by the `set_updated_at()` trigger (F16); powers the student "what's new" signal |
 
 > **Deleting homework:** with **no** attempts it is hard-deleted (`homework_questions`
 > + `homework_files` cascade; every file object is removed first). With attempts it is

@@ -24,6 +24,7 @@ Feature index:
 | F13 | Study Material (subject folders → notes: PDF/image) | ✅ |
 | F14 | Homework (batch-wise: MCQ attempt + PDF/image mark-done) | ✅ |
 | F15 | Student push notifications (homework · tests · study material) | 🟡 |
+| F16 | Student "what's new" (new/updated badges + alert counts) | ✅ |
 
 ---
 
@@ -927,6 +928,64 @@ the toggle's hint.
 `app/api/homework/route.ts`, `app/api/study-materials/route.ts`,
 `app/api/tests/route.ts`, `app/api/tests/[id]/route.ts`. Rationale in
 `DECISIONS.md D30`.
+
+---
+
+## F16 — Student "what's new" (new/updated badges + alert counts)  ✅
+
+**Goal:** When a teacher **adds** a new test / homework / study-material note or
+**updates** an existing one, the student should see it at a glance: an **alert count**
+on the home section cards and a **New / Updated** tag on the individual list cards, so
+nothing new slips past them.
+
+**UI (antd):**
+- **Student home (`/student`)** — each section card (Tests, Homework, Study Material)
+  shows an **alert count badge** (a red antd `Badge` on the icon + a "N new" tag) of how
+  many items are unseen (new **or** updated) since the student last opened that section.
+- **List pages** — `/student/tests`, `/student/homework`, and `/student/study-material`
+  render a green **New** tag on items the student has never seen and an orange
+  **Updated** tag on items whose content changed since they last saw it (shared
+  `components/student/NewBadge.tsx`). For a study **folder**, an added/edited note flags
+  the folder "Updated". Opening a section snapshots the tags for that visit, then marks
+  the items seen so the home badge clears next time.
+
+**Model & rules (client-tracked; see `DECISIONS.md D32`):**
+- **No per-student server read-state.** Each item carries an **activity signature** =
+  `greatest(created_at, updated_at)` (a study folder folds in its latest note activity +
+  note count). An additive migration
+  (`20260921200000_updated_at_tracking.sql`) adds an `updated_at` column + a shared
+  `set_updated_at()` BEFORE-UPDATE trigger to `quizzes`, `homework`, `study_materials`
+  so edits are detectable (adds already came from `created_at`).
+- The browser stores the last-seen signature per item id, **per section**, in
+  localStorage (`utils/whatsNew.ts`): `new` = id never seen, `updated` = id seen but
+  signature changed, else `seen`. `markSeen` **merges** into the registry (never
+  rebuilds) so marking a batch-filtered list seen can't drop another batch's state.
+- **`GET /api/student/whats-new`** (`requireStudent`) returns only `{id, sig}` per item
+  for the three sections — **no titles, answers or private data** — scoped to the
+  student's enrolled batches, mirroring each list endpoint's visibility filters so the
+  home counts match what's inside. The existing list endpoints now also emit
+  `updated_at` / `activity_at` so the list pages compute the **same** signatures.
+- Presentational + additive: no new RLS, no per-student table; answer secrecy (F10) is
+  untouched (signatures carry no content). The seen-state is per-device by design.
+
+**Acceptance:**
+- [x] Home section cards show an alert count of unseen (new + updated) items; opening
+      the section clears it.
+- [x] A newly added test/homework/note shows a **New** tag; an edited one shows
+      **Updated**; an added note flags its study **folder** Updated.
+- [x] Counts/tags are scoped to the student's enrolled batches and respect the header
+      batch switcher; the whats-new signal exposes no titles/answers/private data.
+- [x] `tsc --noEmit`, lint (changed files), and `next build` pass.
+
+**Code:** `supabase/migrations/20260921200000_updated_at_tracking.sql`,
+`utils/whatsNew.ts` (signatures + seen-registry), `app/api/student/whats-new/route.ts`,
+`components/student/NewBadge.tsx`,
+`app/(protected)/student/page.tsx` (home badges),
+`app/(protected)/student/tests/page.tsx`, `app/(protected)/student/homework/page.tsx`,
+`app/(protected)/student/study-material/page.tsx` (tags + mark-seen); `updated_at` /
+`activity_at` added to `GET /api/student/tests`, `/api/student/homework`,
+`/api/student/subjects` (+ types in `utils/homework.ts`, `utils/studyMaterial.ts`).
+Rationale in `DECISIONS.md D32`.
 
 ---
 
