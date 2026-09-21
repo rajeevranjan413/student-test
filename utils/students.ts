@@ -5,10 +5,23 @@
 
 import { createAdminClient } from "./supabase/admin";
 
-export type Contact = { email: string | null; phone: string | null };
+export type Contact = { email: string | null; phone: string | null; active: boolean };
 
 /**
- * Build a map of `auth.users.id → { email, phone }` for the whole user base.
+ * An account is **active** unless it is currently banned. Supabase stores a ban as
+ * `auth.users.banned_until` (an ISO timestamp, or the string `"none"` when clear);
+ * the field isn't in the typed `User` surface, so we read it defensively. A student
+ * is deactivated by banning far into the future (F5) and reactivated by clearing it.
+ */
+function isActive(user: unknown): boolean {
+  const bannedUntil = (user as { banned_until?: string | null } | null)?.banned_until;
+  if (!bannedUntil || bannedUntil === "none") return true;
+  const ts = Date.parse(bannedUntil);
+  return Number.isNaN(ts) ? true : ts <= Date.now();
+}
+
+/**
+ * Build a map of `auth.users.id → { email, phone, active }` for the whole user base.
  * `auth.admin.listUsers` is paginated (default 50/page); we page through with a
  * hard cap so a large user base can't spin forever.
  */
@@ -23,7 +36,11 @@ export async function contactsById(): Promise<Map<string, Contact>> {
     if (error) throw error;
     const users = data?.users ?? [];
     for (const u of users) {
-      map.set(u.id, { email: u.email ?? null, phone: u.phone ?? null });
+      map.set(u.id, {
+        email: u.email ?? null,
+        phone: u.phone ?? null,
+        active: isActive(u),
+      });
     }
     if (users.length < perPage) break; // last page
   }
@@ -31,10 +48,14 @@ export async function contactsById(): Promise<Map<string, Contact>> {
   return map;
 }
 
-/** Email + phone for a single user id, or nulls if not found. */
+/** Email + phone + account status for a single user id, or nulls if not found. */
 export async function contactFor(userId: string): Promise<Contact> {
   const admin = createAdminClient();
   const { data, error } = await admin.auth.admin.getUserById(userId);
-  if (error) return { email: null, phone: null };
-  return { email: data?.user?.email ?? null, phone: data?.user?.phone ?? null };
+  if (error) return { email: null, phone: null, active: true };
+  return {
+    email: data?.user?.email ?? null,
+    phone: data?.user?.phone ?? null,
+    active: isActive(data?.user),
+  };
 }
