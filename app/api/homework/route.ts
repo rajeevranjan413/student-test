@@ -4,10 +4,15 @@ import {
   ACCEPTED_MIMES,
   HOMEWORK_BUCKET,
   MAX_FILE_BYTES,
+  MAX_FILE_LABEL,
+  MAX_FILES_PER_ITEM,
   type HomeworkListItem,
+  type StoredFileMeta,
 } from "@/utils/homework";
 import { extForUpload, isAcceptedFile } from "@/utils/studyMaterial";
-import { removeObjects, uploadObject } from "@/utils/storage";
+import { removeObjects, uploadObject, type StoredFile } from "@/utils/storage";
+import { filesByParent } from "@/utils/files";
+import { notifyBatchStudents } from "@/utils/push";
 
 type IncomingOption = { key: string; text: string };
 type IncomingQuestion = {
@@ -31,12 +36,16 @@ function bad(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
 
-function mapRow(h: Record<string, unknown>): HomeworkListItem {
+function mapRow(
+  h: Record<string, unknown>,
+  filesById: Map<string, StoredFileMeta[]>
+): HomeworkListItem {
   const batches = h.batches as { name?: string } | { name?: string }[] | null;
   const batchName = Array.isArray(batches) ? batches[0]?.name : batches?.name;
   const counts = h.homework_questions as { count?: number }[] | null;
+  const id = h.id as string;
   return {
-    id: h.id as string,
+    id,
     batch_id: h.batch_id as string,
     batch_name: batchName ?? null,
     type: h.type as "mcq" | "file",
@@ -45,9 +54,7 @@ function mapRow(h: Record<string, unknown>): HomeworkListItem {
     due_at: (h.due_at as string | null) ?? null,
     total_questions: (h.total_questions as number | null) ?? null,
     question_count: counts?.[0]?.count ?? 0,
-    file_name: (h.file_name as string | null) ?? null,
-    file_size: (h.file_size as number | null) ?? null,
-    mime_type: (h.mime_type as string | null) ?? null,
+    files: filesById.get(id) ?? [],
     status: h.status as "draft" | "published",
     is_published: Boolean(h.is_published),
     created_at: h.created_at as string,
@@ -74,7 +81,12 @@ export async function GET(request: Request) {
     const { data, error } = await query;
     if (error) throw error;
 
-    return NextResponse.json((data ?? []).map(mapRow));
+    const rows = data ?? [];
+    const fileHwIds = rows
+      .filter((r) => r.type === "file")
+      .map((r) => r.id as string);
+    const filesById = await filesByParent(supabase, "homework_files", fileHwIds);
+    return NextResponse.json(rows.map((r) => mapRow(r, filesById)));
   } catch (error) {
     return handleError(error);
   }
@@ -178,6 +190,17 @@ async function createMcqHomework(request: Request) {
       throw qErr;
     }
 
+    // Notify enrolled students of newly-published homework (F15; best-effort).
+    if (publish) {
+      await notifyBatchStudents(batchId, {
+        type: "homework",
+        refId: hw.id as string,
+        title: "New homework",
+        body: title.trim(),
+        url: `/student/homework/${hw.id as string}`,
+      });
+    }
+
     return NextResponse.json({ id: hw.id, status: hw.status });
   } catch (error) {
     return handleError(error);
@@ -194,38 +217,30 @@ async function createFileHomework(request: Request) {
     const batchId = String(form.get("batchId") ?? "").trim();
     const dueAt = String(form.get("dueAt") ?? "").trim();
     const statusRaw = String(form.get("status") ?? "draft").trim();
-    const file = form.get("file");
+    const files = form
+      .getAll("file")
+      .filter((f): f is File => f instanceof File && f.size > 0);
 
     if (!title) return bad("A homework title is required.");
     if (!batchId) return bad("A batch must be selected.");
-    if (!(file instanceof Blob) || file.size === 0)
-      return bad("A PDF or image file is required.");
-    const fileName = file instanceof File && file.name ? file.name : "homework";
-    const mime = file.type || "";
-    if (!isAcceptedFile(mime, fileName))
-      return bad("Only PDF or image files are allowed.");
-    if (file.size > MAX_FILE_BYTES) return bad("File is too large (max 25 MB).");
+    if (files.length === 0)
+      return bad("At least one PDF or image file is required.");
+    if (files.length > MAX_FILES_PER_ITEM)
+      return bad(`You can attach up to ${MAX_FILES_PER_ITEM} files at once.`);
+    for (const file of files) {
+      const fileName = file.name || "homework";
+      if (!isAcceptedFile(file.type || "", fileName))
+        return bad(`"${fileName}": only PDF or image files are allowed.`);
+      if (file.size > MAX_FILE_BYTES)
+        return bad(`"${fileName}" is too large (max ${MAX_FILE_LABEL}).`);
+    }
 
     const owned = await assertBatchOwned(supabase, batchId, user.id);
     if (owned) return owned;
 
     const publish = statusRaw === "published";
-    const storedMime = (ACCEPTED_MIMES as readonly string[]).includes(mime)
-      ? mime
-      : "application/pdf";
 
-    // --- Upload the bytes to the active provider's private store (Supabase by
-    // default; Cloudinary once STORAGE_PROVIDER=cloudinary — D27). The row records
-    // its provider so download/delete route per-file. ---
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const stored = await uploadObject({
-      bucket: HOMEWORK_BUCKET,
-      keyPrefix: batchId,
-      ext: extForUpload(mime, fileName),
-      contentType: storedMime,
-      bytes: buffer,
-    });
-
+    // --- Insert the homework parent first (files hang off it) ---
     const { data: hw, error: insErr } = await supabase
       .from("homework")
       .insert({
@@ -235,21 +250,63 @@ async function createFileHomework(request: Request) {
         title,
         description: description || null,
         due_at: dueAt || null,
-        storage_provider: stored.provider,
-        file_path: stored.path,
-        file_name: fileName,
-        file_size: file.size,
-        mime_type: storedMime,
         status: publish ? "published" : "draft",
         is_published: publish,
       })
       .select("id, status")
       .single();
+    if (insErr) throw insErr;
 
-    if (insErr) {
-      // Roll back the uploaded object so we never leave an orphaned file.
-      await removeObjects(HOMEWORK_BUCKET, [stored]);
-      throw insErr;
+    // --- Upload each file to the active provider's private store (D27) and record a
+    // child row. Any failure rolls back the objects AND the homework parent. ---
+    const uploaded: StoredFile[] = [];
+    try {
+      const childRows = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileName = file.name || "homework";
+        const mime = file.type || "";
+        const storedMime = (ACCEPTED_MIMES as readonly string[]).includes(mime)
+          ? mime
+          : "application/pdf";
+        const stored = await uploadObject({
+          bucket: HOMEWORK_BUCKET,
+          keyPrefix: batchId,
+          ext: extForUpload(mime, fileName),
+          contentType: storedMime,
+          bytes: Buffer.from(await file.arrayBuffer()),
+        });
+        uploaded.push(stored);
+        childRows.push({
+          homework_id: hw.id as string,
+          storage_provider: stored.provider,
+          file_path: stored.path,
+          file_name: fileName,
+          file_size: file.size,
+          mime_type: storedMime,
+          order: i,
+        });
+      }
+
+      const { error: filesErr } = await supabase
+        .from("homework_files")
+        .insert(childRows);
+      if (filesErr) throw filesErr;
+    } catch (err) {
+      await removeObjects(HOMEWORK_BUCKET, uploaded);
+      await supabase.from("homework").delete().eq("id", hw.id);
+      throw err;
+    }
+
+    // Notify enrolled students of newly-published homework (F15; best-effort).
+    if (publish) {
+      await notifyBatchStudents(batchId, {
+        type: "homework",
+        refId: hw.id as string,
+        title: "New homework",
+        body: title,
+        url: `/student/homework/${hw.id as string}`,
+      });
     }
 
     return NextResponse.json({ id: hw.id, status: hw.status });

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { AuthError, requireTeacher } from "@/utils/auth";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { HOMEWORK_BUCKET } from "@/utils/homework";
-import { removeObjects, toStoredFile } from "@/utils/storage";
+import { removeObjects, toStoredFile, type StoredFile } from "@/utils/storage";
+import { filesForParent, storedFilesForParents } from "@/utils/files";
 
 function handleError(error: unknown) {
   if (error instanceof AuthError)
@@ -44,7 +45,7 @@ export async function GET(
     const { data: hw, error: hwErr } = await supabase
       .from("homework")
       .select(
-        "id, batch_id, teacher_id, type, title, description, due_at, total_questions, marks_per_question, negative_marking, file_name, file_size, mime_type, status, is_published, created_at, batches(name)"
+        "id, batch_id, teacher_id, type, title, description, due_at, total_questions, marks_per_question, negative_marking, status, is_published, created_at, batches(name)"
       )
       .eq("id", id)
       .maybeSingle();
@@ -74,6 +75,9 @@ export async function GET(
       }));
     }
 
+    const files =
+      hw.type === "file" ? await filesForParent(supabase, "homework_files", id) : [];
+
     return NextResponse.json({
       id: hw.id,
       batch_id: hw.batch_id,
@@ -85,9 +89,7 @@ export async function GET(
       total_questions: hw.total_questions ?? null,
       marks_per_question: hw.marks_per_question ?? 1,
       negative_marking: Number(hw.negative_marking ?? 0),
-      file_name: hw.file_name ?? null,
-      file_size: hw.file_size ?? null,
-      mime_type: hw.mime_type ?? null,
+      files,
       status: hw.status,
       is_published: Boolean(hw.is_published),
       attempt_count: await attemptCount(supabase, id),
@@ -128,12 +130,17 @@ export async function DELETE(
       return NextResponse.json({ archived: true });
     }
 
-    // No attempts — safe to hard-delete. Remove the file object first (best-effort,
-    // from whichever provider holds it).
-    if (hw.type === "file" && hw.file_path) {
-      await removeObjects(HOMEWORK_BUCKET, [
-        toStoredFile(hw.storage_provider, hw.file_path as string),
-      ]);
+    // No attempts — safe to hard-delete. Remove the file objects first (best-effort,
+    // each from whichever provider holds it): all child files + any legacy inline file.
+    if (hw.type === "file") {
+      const objects: StoredFile[] = await storedFilesForParents(
+        supabase,
+        "homework_files",
+        [id]
+      );
+      if (hw.file_path)
+        objects.push(toStoredFile(hw.storage_provider, hw.file_path as string));
+      if (objects.length > 0) await removeObjects(HOMEWORK_BUCKET, objects);
     }
     const { error } = await supabase.from("homework").delete().eq("id", id);
     if (error) throw error;

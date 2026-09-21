@@ -1,12 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { App, Button, Card, Tag, Typography, Empty, Space, Popconfirm } from "antd";
-import type { ColumnsType } from "antd/es/table";
-import { PlusOutlined, FileTextOutlined } from "@ant-design/icons";
+import { Button, Card, Empty, Spin, Tag, Typography } from "antd";
+import {
+  CalendarOutlined,
+  FieldTimeOutlined,
+  FileTextOutlined,
+  PlusOutlined,
+  RightOutlined,
+} from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
-import { ResponsiveTable } from "@/components/layout/ResponsiveTable";
+import { BatchPicker } from "@/components/admin/BatchPicker";
+import { DrillHeader } from "@/components/admin/DrillHeader";
+import { useDrillStack } from "@/components/admin/useDrillStack";
 
 const { Title, Text } = Typography;
 
@@ -17,9 +24,19 @@ type TestRow = {
   duration_minutes: number;
   total_questions: number | null;
   status: "draft" | "published" | "closed";
+  batch_id: string | null;
   batch_name: string | null;
   question_count: number;
 };
+
+type Batch = {
+  id: string;
+  name: string;
+  start_time: string | null;
+  end_time: string | null;
+};
+
+type View = { mode: "batches" } | { mode: "tests"; batchId: string; batchName: string };
 
 const STATUS_COLOR: Record<string, string> = {
   draft: "default",
@@ -27,180 +44,220 @@ const STATUS_COLOR: Record<string, string> = {
   closed: "red",
 };
 
+const ACCENT_FROM = "#34d399";
+const ACCENT_TO = "#059669";
+
 export default function QuizzesPage() {
   const router = useRouter();
-  const { message } = App.useApp();
-  const [rows, setRows] = useState<TestRow[]>([]);
+  const [batches, setBatches] = useState<Batch[]>([]);
+  const [tests, setTests] = useState<TestRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const { current, push, back } = useDrillStack<View>({ mode: "batches" });
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/tests");
-        if (res.ok) setRows(await res.json());
+        const [bRes, tRes] = await Promise.all([
+          fetch("/api/batches"),
+          fetch("/api/tests"),
+        ]);
+        if (bRes.ok) setBatches(await bRes.json());
+        if (tRes.ok) setTests(await tRes.json());
       } finally {
         setLoading(false);
       }
     })();
   }, []);
 
-  const handleDelete = async (r: TestRow) => {
-    setDeletingId(r.id);
-    try {
-      const res = await fetch(`/api/tests/${r.id}`, { method: "DELETE" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Failed to delete test");
-      setRows((prev) => prev.filter((row) => row.id !== r.id));
-      message.success(
-        data.archived
-          ? "Test archived — it had attempts, so results were kept."
-          : "Test deleted."
-      );
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : "Failed to delete test");
-    } finally {
-      setDeletingId(null);
+  // Test count per batch (matches the drill-down exactly — both exclude archived).
+  const countByBatch = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of tests) {
+      if (!t.batch_id) continue;
+      m.set(t.batch_id, (m.get(t.batch_id) ?? 0) + 1);
     }
-  };
+    return m;
+  }, [tests]);
 
-  const columns: ColumnsType<TestRow> = [
-    {
-      title: "Test",
-      dataIndex: "title",
-      key: "title",
-      render: (t: string) => (
-        <div>
-          <Text strong>{t}</Text>
-        </div>
-      ),
-    },
-    { title: "Batch", dataIndex: "batch_name", key: "batch_name", render: (b) => b ?? "—" },
-    {
-      title: "Scheduled",
-      dataIndex: "scheduled_at",
-      key: "scheduled_at",
-      render: (s: string | null) => (s ? new Date(s).toLocaleString() : "—"),
-    },
-    {
-      title: "Duration",
-      dataIndex: "duration_minutes",
-      key: "duration_minutes",
-      render: (d: number) => `${d} min`,
-    },
-    {
-      title: "Questions",
-      key: "questions",
-      render: (_, r) => `${r.question_count}${r.total_questions ? ` / ${r.total_questions}` : ""}`,
-    },
-    {
-      title: "Status",
-      dataIndex: "status",
-      key: "status",
-      render: (s: string) => <Tag color={STATUS_COLOR[s] ?? "default"}>{s}</Tag>,
-    },
-    {
-      title: "",
-      key: "actions",
-      align: "right",
-      render: (_, r) => (
-        <Space size={0} wrap>
-          <Button
-            type="link"
-            style={{ paddingRight: 0 }}
-            onClick={() => router.push(`/admin/quizzes/${r.id}`)}
-          >
-            Results
-          </Button>
-          <Button type="link" onClick={() => router.push(`/admin/quizzes/${r.id}/edit`)}>
-            Edit
-          </Button>
-          <Popconfirm
-            title="Delete this test?"
-            description="Tests with student attempts are archived (results kept); others are permanently removed."
-            okText="Delete"
-            okButtonProps={{ danger: true, loading: deletingId === r.id }}
-            onConfirm={() => handleDelete(r)}
-          >
-            <Button type="link" danger style={{ paddingRight: 0 }}>
-              Delete
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ];
+  const batchCards = useMemo(
+    () =>
+      batches.map((b) => ({
+        id: b.id,
+        name: b.name,
+        start_time: b.start_time,
+        end_time: b.end_time,
+        count: countByBatch.get(b.id) ?? 0,
+      })),
+    [batches, countByBatch]
+  );
+
+  const batchTests = useMemo(
+    () =>
+      current.mode === "tests"
+        ? tests.filter((t) => t.batch_id === current.batchId)
+        : [],
+    [tests, current]
+  );
 
   return (
     <PageContainer>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 12,
-          flexWrap: "wrap",
-          marginBottom: 24,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <span
+      {current.mode === "batches" ? (
+        <>
+          <div
             style={{
-              display: "inline-flex",
+              display: "flex",
+              justifyContent: "space-between",
               alignItems: "center",
-              justifyContent: "center",
-              width: 48,
-              height: 48,
-              flexShrink: 0,
-              borderRadius: 14,
-              fontSize: 22,
-              color: "#fff",
-              background: "linear-gradient(135deg, #34d399 0%, #059669 100%)",
-              boxShadow: "0 10px 22px -10px rgba(5, 150, 105, 0.6)",
+              gap: 12,
+              flexWrap: "wrap",
+              marginBottom: 24,
             }}
           >
-            <FileTextOutlined />
-          </span>
-          <div>
-            <Title level={3} style={{ margin: 0 }}>
-              Tests
-            </Title>
-            <Text type="secondary">AI-generated, scheduled tests for your batches</Text>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 48,
+                  height: 48,
+                  flexShrink: 0,
+                  borderRadius: 14,
+                  fontSize: 22,
+                  color: "#fff",
+                  background: `linear-gradient(135deg, ${ACCENT_FROM} 0%, ${ACCENT_TO} 100%)`,
+                  boxShadow: `0 10px 22px -10px ${ACCENT_TO}`,
+                }}
+              >
+                <FileTextOutlined />
+              </span>
+              <div>
+                <Title level={3} style={{ margin: 0 }}>
+                  Tests
+                </Title>
+                <Text type="secondary">Pick a batch to see its scheduled tests</Text>
+              </div>
+            </div>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => router.push("/admin/quizzes/new")}
+            >
+              Create Test
+            </Button>
           </div>
-        </div>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => router.push("/admin/quizzes/new")}
-        >
-          Create Test
-        </Button>
-      </div>
 
-      <Card>
-        <ResponsiveTable
-          rowKey="id"
-          loading={loading}
-          columns={columns}
-          dataSource={rows}
-          scroll={{ x: "max-content" }}
-          pagination={{ pageSize: 10, hideOnSinglePage: true }}
-          locale={{
-            emptyText: (
-              <Empty description="No tests yet">
-                <Space direction="vertical">
-                  <Text type="secondary">
-                    Turn a photo of notes into a scheduled test.
-                  </Text>
-                  <Button type="primary" onClick={() => router.push("/admin/quizzes/new")}>
-                    Create your first test
-                  </Button>
-                </Space>
+          <BatchPicker
+            batches={batchCards}
+            loading={loading}
+            icon={<FileTextOutlined />}
+            accentFrom={ACCENT_FROM}
+            accentTo={ACCENT_TO}
+            countNoun={(n) => `${n} test${n === 1 ? "" : "s"}`}
+            onSelect={(batchId) => {
+              const b = batches.find((x) => x.id === batchId);
+              push({ mode: "tests", batchId, batchName: b?.name ?? "Batch" });
+            }}
+            empty={
+              <Empty description="No batches yet. Create a batch first, then add tests.">
+                <Button type="primary" onClick={() => router.push("/admin/batches/new")}>
+                  Create a batch
+                </Button>
               </Empty>
-            ),
-          }}
-        />
-      </Card>
+            }
+          />
+        </>
+      ) : (
+        <>
+          <DrillHeader
+            crumbs={[{ label: "All batches", onClick: back }, { label: current.batchName }]}
+            title={current.batchName}
+            subtitle={`${batchTests.length} test${batchTests.length === 1 ? "" : "s"}`}
+            icon={<FileTextOutlined />}
+            accentFrom={ACCENT_FROM}
+            accentTo={ACCENT_TO}
+            onBack={back}
+            extra={
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={() => router.push("/admin/quizzes/new")}
+              >
+                Create Test
+              </Button>
+            }
+          />
+
+          {loading ? (
+            <div style={{ display: "flex", justifyContent: "center", padding: 48 }}>
+              <Spin />
+            </div>
+          ) : batchTests.length === 0 ? (
+            <Card>
+              <Empty description="No tests in this batch yet.">
+                <Button type="primary" onClick={() => router.push("/admin/quizzes/new")}>
+                  Create a test
+                </Button>
+              </Empty>
+            </Card>
+          ) : (
+            <div
+              style={{
+                display: "grid",
+                gap: 16,
+                gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+              }}
+            >
+              {batchTests.map((t) => (
+                <Card
+                  key={t.id}
+                  hoverable
+                  className="tap"
+                  styles={{ body: { padding: 18 } }}
+                  style={{ borderRadius: 16 }}
+                  onClick={() => router.push(`/admin/quizzes/${t.id}`)}
+                >
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <Text strong ellipsis style={{ display: "block", fontSize: 15.5 }}>
+                        {t.title}
+                      </Text>
+                      <div style={{ marginTop: 6 }}>
+                        <Tag color={STATUS_COLOR[t.status] ?? "default"} style={{ marginInlineEnd: 0 }}>
+                          {t.status}
+                        </Tag>
+                      </div>
+                    </div>
+                    <RightOutlined style={{ color: "rgba(148,163,184,0.9)", fontSize: 13, marginTop: 4 }} />
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: 14,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 6,
+                    }}
+                  >
+                    <Text type="secondary" style={{ fontSize: 12.5 }}>
+                      <CalendarOutlined style={{ marginRight: 6 }} />
+                      {t.scheduled_at ? new Date(t.scheduled_at).toLocaleString() : "Not scheduled"}
+                    </Text>
+                    <Text type="secondary" style={{ fontSize: 12.5 }}>
+                      <FieldTimeOutlined style={{ marginRight: 6 }} />
+                      {t.duration_minutes} min ·{" "}
+                      {t.question_count}
+                      {t.total_questions ? ` / ${t.total_questions}` : ""} question
+                      {t.question_count === 1 ? "" : "s"}
+                    </Text>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </PageContainer>
   );
 }

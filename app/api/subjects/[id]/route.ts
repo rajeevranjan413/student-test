@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AuthError, requireTeacher } from "@/utils/auth";
 import { STUDY_BUCKET } from "@/utils/studyMaterial";
-import { removeObjects, toStoredFile } from "@/utils/storage";
+import { removeObjects, toStoredFile, type StoredFile } from "@/utils/storage";
+import { storedFilesForParents } from "@/utils/files";
 
 function handleError(error: unknown) {
   if (error instanceof AuthError)
@@ -35,16 +36,24 @@ export async function DELETE(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     // Remove the stored objects of this subject's notes before the cascade delete
-    // (each note may live on a different provider — Supabase or Cloudinary).
+    // (each file may live on a different provider — Supabase or Cloudinary). Cover
+    // both the child files and any legacy file recorded inline on a note.
     const { data: notes, error: notesErr } = await supabase
       .from("study_materials")
-      .select("file_path, storage_provider")
+      .select("id, file_path, storage_provider")
       .eq("subject_id", id);
     if (notesErr) throw notesErr;
 
-    const files = (notes ?? [])
-      .filter((n) => !!n.file_path)
-      .map((n) => toStoredFile(n.storage_provider, n.file_path as string));
+    const materialIds = (notes ?? []).map((n) => n.id as string);
+    const files: StoredFile[] = await storedFilesForParents(
+      supabase,
+      "study_material_files",
+      materialIds
+    );
+    for (const n of notes ?? []) {
+      if (n.file_path)
+        files.push(toStoredFile(n.storage_provider, n.file_path as string));
+    }
     if (files.length > 0) {
       await removeObjects(STUDY_BUCKET, files);
     }

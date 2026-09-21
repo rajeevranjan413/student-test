@@ -5,10 +5,10 @@ import type { MetadataRoute } from "next";
 // native app. See docs/FEATURES.md → F11.
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "NeerajCompetitiveClasses",
-    short_name: "NeerajClasses",
+    name: "Neeraj Competitive Classes",
+    short_name: "Neeraj Classes",
     description:
-      "Coaching center platform — batches, AI-generated tests, and a public leaderboard.",
+      "Neeraj Competitive Classes — Railway, SSC, Bank & Police coaching with AI-generated tests and a live leaderboard. No game · No fame · Only aim.",
     id: "/",
     start_url: "/",
     scope: "/",

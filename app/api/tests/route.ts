@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { AuthError, requireTeacher } from "@/utils/auth";
+import { notifyBatchStudents } from "@/utils/push";
 
 type IncomingOption = { key: string; text: string };
 type IncomingQuestion = {
@@ -145,6 +146,18 @@ export async function POST(request: Request) {
       // Roll back the quiz so we never leave a test with no questions.
       await supabase.from("quizzes").delete().eq("id", quiz.id);
       throw qErr;
+    }
+
+    // Notify enrolled students of a newly-published test (F15; best-effort). The
+    // "test is live" reminder at scheduled_at is fired separately by the cron.
+    if (publish) {
+      await notifyBatchStudents(batchId, {
+        type: "test_published",
+        refId: quiz.id as string,
+        title: "New test scheduled",
+        body: title.trim(),
+        url: `/student/tests/${quiz.id as string}`,
+      });
     }
 
     return NextResponse.json({ id: quiz.id, status: quiz.status });

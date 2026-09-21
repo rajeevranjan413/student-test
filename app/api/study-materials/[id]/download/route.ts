@@ -3,6 +3,7 @@ import { AuthError, requireUser } from "@/utils/auth";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { STUDY_BUCKET } from "@/utils/studyMaterial";
 import { signedUrl, toStoredFile } from "@/utils/storage";
+import { resolveDownloadFile } from "@/utils/files";
 
 function handleError(error: unknown) {
   if (error instanceof AuthError)
@@ -25,10 +26,9 @@ export async function GET(
   try {
     const { supabase, user } = await requireUser();
     const { id } = await params;
-    const mode =
-      new URL(request.url).searchParams.get("mode") === "view"
-        ? "view"
-        : "download";
+    const url = new URL(request.url);
+    const mode = url.searchParams.get("mode") === "view" ? "view" : "download";
+    const fileId = url.searchParams.get("file");
 
     // Read the row via the service role so the download decision doesn't depend on
     // RLS; authorization is enforced explicitly below for each role.
@@ -61,13 +61,27 @@ export async function GET(
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // --- Mint a short-lived, authorized URL (Supabase or Cloudinary per row) ---
-    const url = await signedUrl(
-      toStoredFile(material.storage_provider, material.file_path),
-      { bucket: STUDY_BUCKET, mode, fileName: material.file_name }
-    );
+    // --- Resolve which file to serve: the requested `?file=` (verified to belong to
+    // this note) or the note's first file; fall back to a legacy inline file. ---
+    const target = await resolveDownloadFile(admin, "study_material_files", id, fileId);
+    const stored = target
+      ? { file: target.file, fileName: target.fileName }
+      : material.file_path
+      ? {
+          file: toStoredFile(material.storage_provider, material.file_path),
+          fileName: material.file_name ?? "file",
+        }
+      : null;
+    if (!stored) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    return NextResponse.json({ url });
+    // --- Mint a short-lived, authorized URL (Supabase or Cloudinary per row) ---
+    const signed = await signedUrl(stored.file, {
+      bucket: STUDY_BUCKET,
+      mode,
+      fileName: stored.fileName,
+    });
+
+    return NextResponse.json({ url: signed });
   } catch (error) {
     return handleError(error);
   }

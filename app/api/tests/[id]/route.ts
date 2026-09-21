@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AuthError, requireTeacher } from "@/utils/auth";
 import { createAdminClient } from "@/utils/supabase/admin";
+import { notifyBatchStudents } from "@/utils/push";
 
 type IncomingOption = { key: string; text: string };
 type IncomingQuestion = {
@@ -229,6 +230,19 @@ export async function PUT(
       }));
       const { error: insErr } = await supabase.from("questions").insert(rows);
       if (insErr) throw insErr;
+    }
+
+    // Notify enrolled students when a test becomes published (F15; best-effort).
+    // Dedupe on (test_published, id) makes a re-publish / edit-and-save a no-op, so
+    // students aren't spammed. Closing a test (publish but status='closed') is skipped.
+    if (nextStatus === "published") {
+      await notifyBatchStudents(batchId, {
+        type: "test_published",
+        refId: id,
+        title: "New test scheduled",
+        body: title.trim(),
+        url: `/student/tests/${id}`,
+      });
     }
 
     return NextResponse.json({ id: updated.id, status: updated.status });

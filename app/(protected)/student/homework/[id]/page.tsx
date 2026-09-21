@@ -9,6 +9,7 @@ import {
   Card,
   Divider,
   Empty,
+  Flex,
   Radio,
   Result,
   Space,
@@ -21,11 +22,20 @@ import {
   CheckCircleTwoTone,
   DownloadOutlined,
   EyeOutlined,
+  FileImageOutlined,
+  FilePdfOutlined,
 } from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
+import { formatFileSize, isImageMime } from "@/utils/studyMaterial";
 
 const { Title, Text, Paragraph } = Typography;
 
+type HomeworkFile = {
+  id: string;
+  file_name: string;
+  file_size: number | null;
+  mime_type: string | null;
+};
 type Option = { key: string; text: string };
 type Question = { id: string; text: string; options: Option[]; order: number };
 type ReviewItem = {
@@ -51,8 +61,7 @@ type Homework = {
   description: string | null;
   due_at: string | null;
   batch_name: string | null;
-  file_name: string | null;
-  mime_type: string | null;
+  files: HomeworkFile[];
 };
 type Bootstrap = {
   homework: Homework;
@@ -102,9 +111,11 @@ export default function StudentHomeworkDetail() {
     };
   }, [id, message]);
 
-  const openFile = async (mode: "view" | "download") => {
+  const openFile = async (fileId: string, mode: "view" | "download") => {
     try {
-      const res = await fetch(`/api/homework/${id}/download?mode=${mode}`);
+      const res = await fetch(
+        `/api/homework/${id}/download?mode=${mode}&file=${encodeURIComponent(fileId)}`
+      );
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body.url) throw new Error(body.error || "Could not open the file");
       window.open(body.url, "_blank", "noopener,noreferrer");
@@ -209,13 +220,58 @@ export default function StudentHomeworkDetail() {
       {/* ---------- FILE HOMEWORK ---------- */}
       {hw.type === "file" && (
         <Card>
-          <Space wrap style={{ marginBottom: 16 }}>
-            <Button icon={<EyeOutlined />} onClick={() => openFile("view")}>
-              View
-            </Button>
-            <Button icon={<DownloadOutlined />} onClick={() => openFile("download")}>
-              Download
-            </Button>
+          <Space direction="vertical" style={{ width: "100%", marginBottom: 16 }} size={10}>
+            {hw.files.length === 0 ? (
+              <Text type="secondary">No files attached.</Text>
+            ) : (
+              hw.files.map((f) => {
+                const image = isImageMime(f.mime_type);
+                return (
+                  <Flex key={f.id} align="center" gap={12} wrap>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: 36,
+                        height: 36,
+                        borderRadius: 10,
+                        background: image ? "#0ea5e91a" : "#dc26261a",
+                        color: image ? "#0ea5e9" : "#dc2626",
+                        fontSize: 18,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {image ? <FileImageOutlined /> : <FilePdfOutlined />}
+                    </span>
+                    <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+                      <Text ellipsis style={{ display: "block" }}>
+                        {f.file_name}
+                      </Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {formatFileSize(f.file_size)}
+                      </Text>
+                    </div>
+                    <Space>
+                      <Button
+                        size="small"
+                        icon={<EyeOutlined />}
+                        onClick={() => openFile(f.id, "view")}
+                      >
+                        View
+                      </Button>
+                      <Button
+                        size="small"
+                        icon={<DownloadOutlined />}
+                        onClick={() => openFile(f.id, "download")}
+                      >
+                        Download
+                      </Button>
+                    </Space>
+                  </Flex>
+                );
+              })
+            )}
           </Space>
           <Divider />
           {submitted ? (

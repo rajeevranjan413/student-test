@@ -89,7 +89,7 @@ export default function StudentHomeworkPage() {
                     >
                       {h.type === "mcq" ? (
                         <SolutionOutlined />
-                      ) : isImageMime(h.mime_type) ? (
+                      ) : isImageMime(h.files[0]?.mime_type) ? (
                         <FileImageOutlined />
                       ) : (
                         <FilePdfOutlined />
@@ -109,7 +109,7 @@ export default function StudentHomeworkPage() {
                         <Text type="secondary" style={{ fontSize: 12 }}>
                           {h.type === "mcq"
                             ? `${h.question_count} question${h.question_count === 1 ? "" : "s"}`
-                            : "PDF / Image"}
+                            : `${h.files.length} file${h.files.length === 1 ? "" : "s"}`}
                           {h.due_at ? ` · Due ${new Date(h.due_at).toLocaleDateString()}` : ""}
                         </Text>
                       </div>

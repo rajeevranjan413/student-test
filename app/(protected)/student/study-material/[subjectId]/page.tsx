@@ -62,9 +62,15 @@ export default function StudentSubjectNotesPage({
     load(subjectId);
   }, [load, subjectId]);
 
-  const openFile = async (id: string, mode: "view" | "download") => {
+  const openFile = async (
+    materialId: string,
+    fileId: string,
+    mode: "view" | "download"
+  ) => {
     try {
-      const res = await fetch(`/api/study-materials/${id}/download?mode=${mode}`);
+      const res = await fetch(
+        `/api/study-materials/${materialId}/download?mode=${mode}&file=${encodeURIComponent(fileId)}`
+      );
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.url)
         throw new Error(data.error || "Could not open the file");
@@ -99,69 +105,88 @@ export default function StudentSubjectNotesPage({
         </Card>
       ) : (
         <Flex vertical gap={12} style={{ marginTop: 20 }}>
-          {rows.map((m) => {
-            const image = isImageMime(m.mime_type);
-            return (
-              <Card key={m.id} styles={{ body: { padding: 16 } }}>
-                <Flex align="flex-start" gap={14} wrap>
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      width: 44,
-                      height: 44,
-                      borderRadius: 12,
-                      background: image ? "#0ea5e91a" : "#dc26261a",
-                      color: image ? "#0ea5e9" : "#dc2626",
-                      fontSize: 22,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {image ? <FileImageOutlined /> : <FilePdfOutlined />}
-                  </span>
-                  <div style={{ flex: "1 1 240px", minWidth: 0 }}>
-                    <Text strong style={{ fontSize: 16 }}>
-                      {m.title}
-                    </Text>
-                    <div style={{ marginTop: 4 }}>
-                      <Tag color={image ? "blue" : "red"}>
-                        {image ? "Image" : "PDF"}
-                      </Tag>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        {formatFileSize(m.file_size)} ·{" "}
-                        {new Date(m.created_at).toLocaleDateString()}
-                      </Text>
-                    </div>
-                    {m.description ? (
-                      <Paragraph
-                        type="secondary"
-                        style={{ fontSize: 13, marginTop: 8, marginBottom: 0 }}
-                        ellipsis={{ rows: 3, expandable: true, symbol: "more" }}
-                      >
-                        {m.description}
-                      </Paragraph>
-                    ) : null}
-                  </div>
-                  <Space>
-                    <Button
-                      icon={<EyeOutlined />}
-                      onClick={() => openFile(m.id, "view")}
-                    >
-                      View
-                    </Button>
-                    <Button
-                      type="primary"
-                      icon={<DownloadOutlined />}
-                      onClick={() => openFile(m.id, "download")}
-                    >
-                      Download
-                    </Button>
-                  </Space>
-                </Flex>
-              </Card>
-            );
-          })}
+          {rows.map((m) => (
+            <Card key={m.id} styles={{ body: { padding: 16 } }}>
+              <Text strong style={{ fontSize: 16 }}>
+                {m.title}
+              </Text>
+              <div style={{ marginTop: 4 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {m.files.length} file{m.files.length === 1 ? "" : "s"} ·{" "}
+                  {new Date(m.created_at).toLocaleDateString()}
+                </Text>
+              </div>
+              {m.description ? (
+                <Paragraph
+                  type="secondary"
+                  style={{ fontSize: 13, marginTop: 8, marginBottom: 0 }}
+                  ellipsis={{ rows: 3, expandable: true, symbol: "more" }}
+                >
+                  {m.description}
+                </Paragraph>
+              ) : null}
+
+              <Flex vertical gap={8} style={{ marginTop: 12 }}>
+                {m.files.length === 0 ? (
+                  <Text type="secondary">No files in this note.</Text>
+                ) : (
+                  m.files.map((f) => {
+                    const image = isImageMime(f.mime_type);
+                    return (
+                      <Flex key={f.id} align="center" gap={12} wrap>
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            width: 36,
+                            height: 36,
+                            borderRadius: 10,
+                            background: image ? "#0ea5e91a" : "#dc26261a",
+                            color: image ? "#0ea5e9" : "#dc2626",
+                            fontSize: 18,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {image ? <FileImageOutlined /> : <FilePdfOutlined />}
+                        </span>
+                        <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+                          <Text ellipsis style={{ display: "block" }}>
+                            {f.file_name}
+                          </Text>
+                          <Space size={6}>
+                            <Tag color={image ? "blue" : "red"}>
+                              {image ? "Image" : "PDF"}
+                            </Tag>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              {formatFileSize(f.file_size)}
+                            </Text>
+                          </Space>
+                        </div>
+                        <Space>
+                          <Button
+                            size="small"
+                            icon={<EyeOutlined />}
+                            onClick={() => openFile(m.id, f.id, "view")}
+                          >
+                            View
+                          </Button>
+                          <Button
+                            size="small"
+                            type="primary"
+                            icon={<DownloadOutlined />}
+                            onClick={() => openFile(m.id, f.id, "download")}
+                          >
+                            Download
+                          </Button>
+                        </Space>
+                      </Flex>
+                    );
+                  })
+                )}
+              </Flex>
+            </Card>
+          ))}
         </Flex>
       )}
     </PageContainer>

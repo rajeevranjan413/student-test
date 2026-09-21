@@ -10,6 +10,7 @@ import {
 } from "@ant-design/icons";
 import type { ComponentType } from "react";
 import { PageContainer } from "@/components/layout/PageContainer";
+import { PushToggle } from "@/components/pwa/PushToggle";
 
 const { Title, Text } = Typography;
 
@@ -21,16 +22,16 @@ const { Title, Text } = Typography;
  * security-critical rule stays in the F6 endpoints the Tests card links to.
  */
 
-// Placeholder banner creatives. The maintainer will replace each `src` with a
-// real image URL — this array is the single place to edit. Kept as remote URLs
-// (not bundled assets) so swapping them is a one-line change per slide.
+// Banner creatives — real Neeraj Competitive Classes photos bundled under
+// public/home/*. This array is the single place to edit; local (not remote) so
+// the PWA can serve them offline. Swap a file or path to change a slide.
 const BANNERS: { src: string; alt: string }[] = [
-  { src: "https://picsum.photos/seed/nc-banner-1/1200/420", alt: "Banner 1" },
-  { src: "https://picsum.photos/seed/nc-banner-2/1200/420", alt: "Banner 2" },
-  { src: "https://picsum.photos/seed/nc-banner-3/1200/420", alt: "Banner 3" },
-  { src: "https://picsum.photos/seed/nc-banner-4/1200/420", alt: "Banner 4" },
-  { src: "https://picsum.photos/seed/nc-banner-5/1200/420", alt: "Banner 5" },
-  { src: "https://picsum.photos/seed/nc-banner-6/1200/420", alt: "Banner 6" },
+  { src: "/home/hero.jpg", alt: "Neeraj Competitive Classes — felicitation ceremony" },
+  { src: "/home/toppers.jpg", alt: "Celebrating a medal-winning student" },
+  { src: "/home/banner.jpg", alt: "Our coaching center" },
+  { src: "/home/felicitation.jpg", alt: "Celebrating a student's success" },
+  { src: "/home/teachers-day.jpg", alt: "Teacher's Day at Neeraj Competitive Classes" },
+  { src: "/home/award.jpg", alt: "Awarding a hard-working student" },
 ];
 
 type Section = {
@@ -76,6 +77,16 @@ export default function StudentHome() {
 
   return (
     <PageContainer max={960}>
+      {/* Greeting */}
+      <Flex vertical style={{ marginBottom: 16 }}>
+        <Title level={3} style={{ margin: 0 }}>
+          Welcome back 👋
+        </Title>
+        <Text type="secondary">
+          Neeraj Competitive Classes · No game · No fame · Only aim
+        </Text>
+      </Flex>
+
       {/* Banner slider */}
       <Carousel autoplay autoplaySpeed={4000} draggable adaptiveHeight={false}>
         {BANNERS.map((b) => (
@@ -96,6 +107,9 @@ export default function StudentHome() {
           </div>
         ))}
       </Carousel>
+
+      {/* Opt-in push notifications (F15) — hidden where unsupported/unconfigured */}
+      <PushToggle />
 
       {/* Section cards */}
       <Title level={4} style={{ marginTop: 28, marginBottom: 4 }}>

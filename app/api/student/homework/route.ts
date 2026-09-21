@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { AuthError, requireStudent } from "@/utils/auth";
 import { enrolledBatchIds } from "@/utils/studentTests";
+import { filesByParent } from "@/utils/files";
 import type { StudentHomeworkItem } from "@/utils/homework";
 
 function handleError(error: unknown) {
@@ -27,7 +28,7 @@ export async function GET(request: Request) {
     const { data, error } = await supabase
       .from("homework")
       .select(
-        "id, batch_id, type, title, description, due_at, file_name, file_size, mime_type, created_at, batches(name), homework_questions(count)"
+        "id, batch_id, type, title, description, due_at, created_at, batches(name), homework_questions(count)"
       )
       .in("batch_id", scoped)
       .is("archived_at", null)
@@ -36,6 +37,11 @@ export async function GET(request: Request) {
     if (error) throw error;
 
     const rows = data ?? [];
+    const filesById = await filesByParent(
+      supabase,
+      "homework_files",
+      rows.filter((r) => r.type === "file").map((r) => r.id as string)
+    );
 
     // The student's own attempts for these homework rows (RLS scopes to own rows).
     const ids = rows.map((r) => r.id as string);
@@ -71,9 +77,7 @@ export async function GET(request: Request) {
         description: (h.description as string | null) ?? null,
         due_at: (h.due_at as string | null) ?? null,
         question_count: counts?.[0]?.count ?? 0,
-        file_name: (h.file_name as string | null) ?? null,
-        file_size: (h.file_size as number | null) ?? null,
-        mime_type: (h.mime_type as string | null) ?? null,
+        files: filesById.get(h.id as string) ?? [],
         created_at: h.created_at as string,
         attempt: attemptByHw.get(h.id as string) ?? null,
       };

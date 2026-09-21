@@ -38,7 +38,12 @@ import {
 import { DIFFICULTY_COLORS } from "@/utils/constants";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { formatBatchTiming } from "@/utils/batch";
-import { ACCEPT_ATTR, MAX_FILE_BYTES } from "@/utils/homework";
+import {
+  ACCEPT_ATTR,
+  MAX_FILE_BYTES,
+  MAX_FILE_LABEL,
+  MAX_FILES_PER_ITEM,
+} from "@/utils/homework";
 import { isAcceptedFile } from "@/utils/studyMaterial";
 
 const { Title, Text, Paragraph } = Typography;
@@ -94,12 +99,21 @@ export default function NewHomeworkPage() {
     (async () => {
       try {
         const res = await fetch("/api/batches");
-        if (res.ok) setBatches(await res.json());
+        if (res.ok) {
+          const data: BatchOpt[] = await res.json();
+          setBatches(data);
+          // Prefill the batch when we arrived from a batch's homework view (D29).
+          // Read from window.location to avoid useSearchParams' Suspense requirement.
+          const preset = new URLSearchParams(window.location.search).get("batch");
+          if (preset && data.some((b) => b.id === preset)) {
+            form.setFieldValue("batchId", preset);
+          }
+        }
       } catch {
         /* handled by empty state */
       }
     })();
-  }, []);
+  }, [form]);
 
   // ----- MCQ builder helpers -----
   const blankQuestion = (): GQ => ({
@@ -240,19 +254,26 @@ export default function NewHomeworkPage() {
     }
 
     // file homework
-    const raw = fileList[0];
-    const file = (raw?.originFileObj ?? raw) as File | undefined;
-    if (!file) {
-      message.error("Please select a PDF or image file.");
+    const files = fileList
+      .map((f) => (f.originFileObj ?? f) as File | undefined)
+      .filter((f): f is File => !!f);
+    if (files.length === 0) {
+      message.error("Please select at least one PDF or image file.");
       return;
     }
-    if (!isAcceptedFile(file.type || "", file.name || "")) {
-      message.error("Only PDF or image files are allowed.");
+    if (files.length > MAX_FILES_PER_ITEM) {
+      message.error(`You can attach up to ${MAX_FILES_PER_ITEM} files at once.`);
       return;
     }
-    if (file.size > MAX_FILE_BYTES) {
-      message.error("File is too large (max 25 MB).");
-      return;
+    for (const file of files) {
+      if (!isAcceptedFile(file.type || "", file.name || "")) {
+        message.error(`"${file.name}": only PDF or image files are allowed.`);
+        return;
+      }
+      if (file.size > MAX_FILE_BYTES) {
+        message.error(`"${file.name}" is too large (max ${MAX_FILE_LABEL}).`);
+        return;
+      }
     }
     setSaving(true);
     try {
@@ -262,7 +283,7 @@ export default function NewHomeworkPage() {
       if (values.description) body.append("description", values.description);
       if (dueAtIso) body.append("dueAt", dueAtIso);
       body.append("status", publish ? "published" : "draft");
-      body.append("file", file);
+      for (const file of files) body.append("file", file);
 
       const res = await fetch("/api/homework", { method: "POST", body });
       const data = await res.json().catch(() => ({}));
@@ -517,21 +538,25 @@ export default function NewHomeworkPage() {
       {type === "file" && (
         <Card title="Upload PDF or image">
           <Paragraph type="secondary">
-            Students read this file and mark the homework done — no upload back.
+            Students read these files and mark the homework done — no upload back.
           </Paragraph>
           <Upload
             accept={ACCEPT_ATTR}
-            maxCount={1}
+            multiple
+            maxCount={MAX_FILES_PER_ITEM}
             listType="text"
             beforeUpload={() => false}
             fileList={fileList}
-            onChange={({ fileList: fl }) => setFileList(fl.slice(-1))}
-            onRemove={() => setFileList([])}
+            onChange={({ fileList: fl }) => setFileList(fl)}
+            onRemove={(f) =>
+              setFileList((prev) => prev.filter((x) => x.uid !== f.uid))
+            }
           >
-            <Button icon={<UploadOutlined />}>Select file</Button>
+            <Button icon={<UploadOutlined />}>Select file(s)</Button>
           </Upload>
           <Text type="secondary" style={{ fontSize: 12, display: "block", marginTop: 8 }}>
-            PDF or image (PNG, JPG, WebP, GIF), up to 25 MB.
+            PDF or image (PNG, JPG, WebP, GIF). Attach up to {MAX_FILES_PER_ITEM}{" "}
+            files, each up to {MAX_FILE_LABEL}.
           </Text>
         </Card>
       )}

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AuthError, requireTeacher } from "@/utils/auth";
 import { STUDY_BUCKET } from "@/utils/studyMaterial";
-import { removeObjects, toStoredFile } from "@/utils/storage";
+import { removeObjects, toStoredFile, type StoredFile } from "@/utils/storage";
+import { storedFilesForParents } from "@/utils/files";
 
 function handleError(error: unknown) {
   if (error instanceof AuthError)
@@ -32,12 +33,18 @@ export async function DELETE(
     if (!material || material.teacher_id !== user.id)
       return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    // Remove the stored object first (best-effort, on whichever provider), then the row.
+    // Remove the stored objects first (best-effort, each on its own provider), then
+    // the row (child file rows cascade at the DB). Include any legacy file recorded
+    // inline on the parent as well as all child files.
+    const objects: StoredFile[] = await storedFilesForParents(
+      supabase,
+      "study_material_files",
+      [id]
+    );
     if (material.file_path) {
-      await removeObjects(STUDY_BUCKET, [
-        toStoredFile(material.storage_provider, material.file_path),
-      ]);
+      objects.push(toStoredFile(material.storage_provider, material.file_path));
     }
+    if (objects.length > 0) await removeObjects(STUDY_BUCKET, objects);
 
     const { error: delErr } = await supabase
       .from("study_materials")

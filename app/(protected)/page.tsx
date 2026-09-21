@@ -11,7 +11,6 @@ import {
   BadgeCheck,
   ArrowRight,
   Phone,
-  Mail,
   MapPin,
 } from "lucide-react";
 import { InstallAppButton } from "@/components/pwa/InstallApp";
@@ -34,13 +33,21 @@ import { InstallAppButton } from "@/components/pwa/InstallApp";
  * fallback and to avoid the next/no-img-element lint (same approach as F12).
  */
 
+// Center branding — single source of truth for the landing page. Values come
+// from Neeraj Competitive Classes' own banners/photos (public/org). Adjust the
+// stat figures to the center's current numbers before going live.
 const CENTER_NAME = "Neeraj Competitive Classes";
+const CENTER_TAGLINE = "Competitive Exam Coaching";
+const CENTER_MOTTO = "No game · No fame · Only aim";
+const CENTER_RUN_BY = "Run by Neeraj Sir · Faculty of Patna";
+const CENTER_PHONE = "+91 78705 79213";
+const CENTER_ADDRESS = "Near Sanichar Bazar, Ambedkar Nagar, Bihar";
 
 const STATS = [
-  { value: "10+", label: "Years of coaching" },
-  { value: "2,500+", label: "Students taught" },
-  { value: "800+", label: "Selections" },
-  { value: "50+", label: "Tests every month" },
+  { value: "Govt-job", label: "Focused batches" },
+  { value: "Police · Army", label: "Selections & counting" },
+  { value: "Railway · SSC", label: "Exam-pattern practice" },
+  { value: "Weekly", label: "Tests + leaderboard" },
 ];
 
 const FEATURES = [
@@ -51,13 +58,13 @@ const FEATURES = [
   },
   {
     icon: Presentation,
-    title: "Expert faculty",
-    body: "Mentors who have cracked the exams themselves guide you through every concept.",
+    title: "Faculty of Patna",
+    body: "Learn from Neeraj Sir and an expert team who have guided hundreds into Police, Army & SSC.",
   },
   {
     icon: CalendarClock,
     title: "Structured batches",
-    body: "Morning and evening batches with fixed timings that fit around school and college.",
+    body: "Foundation, Railway Group-D & Police batches with fixed timings that fit school and college.",
   },
   {
     icon: Trophy,
@@ -69,18 +76,18 @@ const FEATURES = [
 const PROGRAMS = [
   {
     icon: BookOpen,
-    title: "Foundation",
-    body: "Concept-first coaching for early aspirants building a strong base.",
+    title: "Foundation Batch",
+    body: "Concept-first coaching for early aspirants building a strong base for Railway, SSC & Police.",
   },
   {
     icon: ClipboardCheck,
-    title: "Test Series",
-    body: "Full-length, timed mock tests with instant scoring and detailed review.",
+    title: "SSC GD · Railway Group-D",
+    body: "Full-length, timed mock tests for SSC GD and Railway Group-D with instant scoring and review.",
   },
   {
     icon: BadgeCheck,
-    title: "Crash Course",
-    body: "Intensive final-lap revision and high-yield practice before the exam.",
+    title: "Bihar Police · Daroga",
+    body: "Focused preparation and high-yield practice for Bihar Police, Daroga (SI) & Defence exams.",
   },
 ];
 
@@ -126,7 +133,7 @@ export default function HomePage() {
                 {CENTER_NAME}
               </span>
               <span className="text-xs font-medium text-muted-foreground">
-                Competitive Exam Coaching
+                {CENTER_TAGLINE}
               </span>
             </span>
           </Link>
@@ -151,15 +158,18 @@ export default function HomePage() {
         <div className="mx-auto grid max-w-6xl items-center gap-10 px-4 py-14 sm:px-6 sm:py-20 lg:grid-cols-2">
           <div>
             <span className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-              <Sparkles className="h-3.5 w-3.5" /> Admissions open for new batches
+              <Sparkles className="h-3.5 w-3.5" /> Admissions open — new Foundation &amp; Group-D batches
             </span>
             <h1 className="mt-5 text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl">
-              Crack competitive exams with{" "}
+              Crack Railway, SSC, Bank &amp; Police exams with{" "}
               <span className="text-primary">expert guidance</span>
             </h1>
-            <p className="mt-5 max-w-xl text-base text-muted-foreground sm:text-lg">
-              {CENTER_NAME} blends experienced faculty with AI-powered practice
-              tests and a live leaderboard — so every student knows exactly where
+            <p className="mt-2 text-sm font-semibold uppercase tracking-wide text-primary/80">
+              {CENTER_MOTTO}
+            </p>
+            <p className="mt-4 max-w-xl text-base text-muted-foreground sm:text-lg">
+              {CENTER_NAME} blends the Faculty of Patna with AI-powered practice
+              tests and a live leaderboard — so every aspirant knows exactly where
               they stand and how to improve.
             </p>
 
@@ -201,12 +211,12 @@ export default function HomePage() {
           >
             <div className="absolute inset-0 flex items-end justify-between gap-3 bg-gradient-to-t from-black/50 to-transparent p-5">
               <div className="rounded-xl bg-background/90 px-4 py-3 shadow-sm backdrop-blur">
-                <p className="text-2xl font-extrabold text-primary">98%</p>
-                <p className="text-xs text-muted-foreground">Student satisfaction</p>
+                <p className="text-lg font-extrabold text-primary">Faculty of Patna</p>
+                <p className="text-xs text-muted-foreground">Experienced mentors</p>
               </div>
               <div className="rounded-xl bg-background/90 px-4 py-3 shadow-sm backdrop-blur">
-                <p className="text-2xl font-extrabold text-primary">800+</p>
-                <p className="text-xs text-muted-foreground">Selections</p>
+                <p className="text-lg font-extrabold text-primary">Police · Army</p>
+                <p className="text-xs text-muted-foreground">Real selections</p>
               </div>
             </div>
           </div>
@@ -254,13 +264,13 @@ export default function HomePage() {
       <section className="mx-auto max-w-6xl px-4 pb-4 sm:px-6">
         <div className="grid gap-4 sm:grid-cols-3 sm:grid-rows-2 sm:[grid-template-areas:'a_a_b''a_a_c']">
           <GalleryTile
-            src="/home/classroom.jpg"
-            label="Interactive classrooms"
+            src="/home/banner.jpg"
+            label="Our coaching center"
             className="min-h-56 sm:[grid-area:a]"
           />
           <GalleryTile
-            src="/home/banner.jpg"
-            label="Our campus"
+            src="/home/classroom.jpg"
+            label="Daily classes in session"
             className="min-h-44 sm:[grid-area:b]"
           />
           <GalleryTile
@@ -353,7 +363,10 @@ export default function HomePage() {
             </div>
             <p className="mt-3 max-w-xs text-sm text-muted-foreground">
               Guiding competitive-exam aspirants with expert mentoring and
-              data-driven practice.
+              data-driven practice. {CENTER_MOTTO}.
+            </p>
+            <p className="mt-2 text-xs font-medium text-muted-foreground">
+              {CENTER_RUN_BY}
             </p>
           </div>
 
@@ -379,13 +392,13 @@ export default function HomePage() {
             <h3 className="text-sm font-semibold">Get in touch</h3>
             <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
               <li className="flex items-center gap-2">
-                <Phone className="h-4 w-4 text-primary" /> +91 00000 00000
+                <Phone className="h-4 w-4 text-primary" /> {CENTER_PHONE}
               </li>
               <li className="flex items-center gap-2">
-                <Mail className="h-4 w-4 text-primary" /> hello@neerajclasses.in
+                <Sparkles className="h-4 w-4 text-primary" /> {CENTER_MOTTO}
               </li>
               <li className="flex items-center gap-2">
-                <MapPin className="h-4 w-4 text-primary" /> Your city, India
+                <MapPin className="h-4 w-4 text-primary" /> {CENTER_ADDRESS}
               </li>
             </ul>
           </div>

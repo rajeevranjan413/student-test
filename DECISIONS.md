@@ -582,6 +582,138 @@ never reach the browser; the download route authorizes before every mint. No RLS
 build` passes. Not click-tested live (no `.env`/Supabase/Cloudinary keys in the repo);
 the Cloudinary path needs a Cloudinary account + `STORAGE_PROVIDER=cloudinary`.
 
+## D28 — Multiple files per note / file-homework + 100 MB upload cap (F13/F14) — DONE
+**Ask:** the maintainer wanted a teacher to attach **several** PDFs/images to one
+Study-Material note and to one file-Homework (not one file each), and a larger upload
+ceiling (asked "up to 1 GB").
+
+**Data model — child file tables (chosen over "N rows" or a JSON array):** a note /
+a file-homework is one parent; its files are rows in new child tables
+`study_material_files` / `homework_files` (`storage_provider`, `file_path`,
+`file_name`, `file_size`, `mime_type`, `order`, FK `ON DELETE CASCADE`). This keeps a
+file-homework a single "mark done" assignment (N rows would split it into N
+homeworks) and a note a single title/description. Migration
+`20260921160000_multi_file_uploads.sql` is additive/idempotent: creates the tables +
+RLS (mirroring each parent's teacher-CRUD / student-enrolled policies), **relaxes**
+(does not drop) the NOT NULL on `study_materials.file_path`/`file_name`, and
+**backfills** every existing single-file parent into its child table so all reads use
+one uniform path. The parent's inline `file_*` columns are **kept** (D27 storage layer
++ any old rows) but are legacy; new uploads write only child rows.
+
+**Server/API:** `POST /api/study-materials` and the file branch of `POST /api/homework`
+now read `form.getAll("file")`, validate each, insert the parent, upload each file and
+insert a child row (rolling back all objects + the parent on any failure). List/detail
++ student APIs attach a `files[]` array (public metadata only — id/name/size/mime);
+the download routes take `?file=<id>` (verified to belong to the parent; default =
+first file) and still authorize the **parent** before minting a signed URL. New
+`utils/files.ts` centralizes the child-file loaders + the download resolver + bulk
+delete. `DELETE` of a note/homework/subject removes every child object (per provider)
+before the rows cascade.
+
+**Upload cap — 100 MB, not 1 GB (maintainer's informed call):** buffered multipart
+uploads that large risk server memory / host body limits, so `MAX_FILE_BYTES` is
+**100 MB** (`utils/studyMaterial.ts`, `MAX_FILE_LABEL`), also raising Supabase's
+`config.toml` `file_size_limit` to `100MiB`. Per-file cap; up to 20 files per item
+(`MAX_FILES_PER_ITEM`). The current path still buffers each file in memory; streaming
+directly to the provider is the follow-up if genuinely large files are needed.
+
+**UI:** admin study-material + homework-create uploads are `multiple`; each note /
+file-homework renders its files as a list with per-file View/Download (student folder
+view + student homework detail likewise). Copy updated to "up to 100 MB / up to 20
+files".
+
+**Verify:** `npx tsc --noEmit` clean · `npx eslint` (changed files) clean · `npx next
+build` passes. Not click-tested live (no `.env`/Storage keys). Landed alongside a
+concurrent F15 (push) + D29/D30 (batch-first drill) refactor; merges were clean (both
+sides read the new `files[]` shape).
+
+## D29 — Admin Tests / Homework / Study-Material are batch-first drill-downs
+The three admin content screens are heavily batch-scoped, so a flat list forced the
+teacher to eyeball a `Batch` column and gave no per-batch overview. Reworked all three
+to open on a **batch grid** (one premium card per batch with the live count of its
+tests / homework / subjects) and **drill down** from there:
+- **Tests:** batch grid → a batch's test cards → `/admin/quizzes/[id]` detail.
+- **Homework:** batch grid → a batch's homework cards → **new** `/admin/homework/[id]`
+  detail (created this pass; homework had no detail page before, so its per-card
+  delete lived on the list).
+- **Study Material:** batch grid → a batch's subjects (folders) → a subject's notes.
+
+**Actions move to the deepest/detail level.** Per the request, the batch and
+intermediate grids are navigation-only — **edit / delete / view / download / add**
+live on the detail page (tests: the existing `[id]` hub already carried Edit/Delete;
+homework: the new `[id]` hub; study material: the notes level). This keeps list
+surfaces calm and prevents mis-taps on destructive controls.
+
+**How it's built (no API/schema change):**
+- Counts are derived **client-side** by grouping the existing list endpoints
+  (`/api/tests`, `/api/homework`, `/api/subjects`) by `batch_id` and joining against
+  `/api/batches` (so batches with **zero** items still appear). One extra fetch per
+  page; no new endpoint. Counts therefore match exactly what the drill-down shows
+  (both exclude archived rows), unlike `batches.test_count` which counts archived too.
+- Drill state is in-component (a small `useDrillStack` hook, `components/admin/`) with
+  an in-page **breadcrumb + back** as the "up" affordance. We deliberately keep the
+  state out of the URL and out of `history.state`: `useSearchParams` would force a
+  Suspense boundary in these `"use client"` pages, and writing `history.state` risks
+  clobbering the Next App Router's own routing state. Opening a detail **route**
+  (`router.push`) is a normal navigation; returning remounts the page at the batch
+  grid (acceptable — the breadcrumb makes the level obvious).
+- Shared premium `components/admin/BatchPicker.tsx` renders the batch card grid
+  (gradient icon tile, count pill, hover-lift, `.tap`) for a consistent look.
+
+## D30 — Student push notifications via Web Push / VAPID (F15) — IN PROGRESS
+
+**Context (maintainer request):** "design PWA notifications for students for homework,
+tests, study material." Students should get a native-style alert the moment new work
+is posted — even with the app closed.
+
+**Why Web Push (not FCM SDK / polling / email):**
+- The app is already a PWA with a service worker (F11). **Web Push (VAPID)** is the
+  standard, dependency-light way to reach an installed PWA when it's closed — no
+  Firebase project, no native APK, no third-party SDK in the client bundle. It rides
+  the exact SW we already ship; we only add `push`/`notificationclick` handlers.
+- Polling would drain battery and never fire while the app is closed; email is not the
+  "app notification" the maintainer asked for. FCM would work but adds a heavy SDK +
+  Google project for no gain over raw Web Push here.
+- The server signs with a VAPID keypair via the `web-push` library (server-only). Only
+  the **public** key reaches the browser (`NEXT_PUBLIC_VAPID_PUBLIC_KEY`) — it must, to
+  subscribe. The private key + `VAPID_SUBJECT` stay in env.
+
+**Data — two additive tables (`20260921180000_push_notifications.sql`):**
+- `push_subscriptions` (one row per device endpoint) — written **server-side via the
+  service role** after `requireUser`; `user_id` is always the authed user, never
+  client-supplied. A `404`/`410` from the push service prunes the row. RLS: own-row
+  SELECT only, **no client writes** (mirrors the app's `quiz_attempts` stance).
+- `notification_events` — **unique `(type, ref_id, user_id)`**. Each fan-out *claims*
+  its rows first (`upsert … ignoreDuplicates`) and only pushes the newly-claimed users.
+  This is what makes the periodic test-live cron **idempotent** and re-publish a no-op,
+  without tracking per-quiz "reminded" flags on the quizzes table.
+
+**Triggers — synchronous best-effort fan-out + one cron:**
+- Publish-time events (homework published, study-material note added, test published)
+  fan out **inline** in the existing POST/PUT handlers to students enrolled in the
+  batch. Coaching batches are small, so awaiting the fan-out is fine; it's wrapped so a
+  push failure **never** breaks creating the content (the create still returns 200).
+- The **"test is live"** reminder is time-based, so it needs a scheduler. Rather than
+  add cron infrastructure to the app, we expose `GET /api/cron/notify` guarded by a
+  `CRON_SECRET` bearer token and let the deploy platform drive it (**Vercel Cron** or
+  Supabase `pg_cron`) every few minutes. It scans published, non-archived tests whose
+  `scheduled_at` passed within a short look-back window; dedupe handles repeats.
+
+**Security unchanged:** payloads carry only a title + item name + deep link — never
+answers or private data (F10 intact). No caching change to the SW (F11 intact). The
+whole feature **no-ops cleanly when VAPID is unconfigured** — `web-push` isn't set up,
+the toggle hides, and every trigger returns early — so the app builds and runs exactly
+as before without keys.
+
+**Opt-in:** browsers require a user gesture for notification permission, so a `PushToggle`
+bell on the student home drives subscribe/unsubscribe and reflects live permission
+state. **iOS caveat:** web push only works for an installed PWA on iOS 16.4+.
+
+**Verify:** `npx tsc --noEmit` · `npx eslint` (changed files) · `npx next build`. Live
+push needs a VAPID keypair (`npx web-push generate-vapid-keys`) in `.env.local` and a
+cron hitting `/api/cron/notify` with `CRON_SECRET`; not click-tested here (no keys in
+the repo).
+
 ## Open items (next passes)
 - When the legacy `/home` browser-write builder is retired, tighten the teacher
   quizzes/questions write policies from `is_teacher()` to owner-scoped

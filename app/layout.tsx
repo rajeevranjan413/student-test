@@ -8,13 +8,14 @@ import { BatchProvider } from "@/components/providers/BatchProvider";
 import "./globals.css";
 
 export const metadata = {
-  title: "NeerajCompetitiveClasses",
-  description: "Coaching Center Platform",
-  applicationName: "NeerajClasses",
+  title: "Neeraj Competitive Classes",
+  description:
+    "Neeraj Competitive Classes — Railway, SSC, Bank & Police coaching. No game · No fame · Only aim.",
+  applicationName: "Neeraj Classes",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "NeerajClasses",
+    title: "Neeraj Classes",
   },
   icons: {
     icon: "/icon-192.png",

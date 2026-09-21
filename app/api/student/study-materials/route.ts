@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { AuthError, requireStudent } from "@/utils/auth";
 import { enrolledBatchIds } from "@/utils/studentTests";
+import { filesByParent } from "@/utils/files";
+import type { StoredFileMeta } from "@/utils/studyMaterial";
 
 function handleError(error: unknown) {
   if (error instanceof AuthError)
@@ -11,20 +13,22 @@ function handleError(error: unknown) {
   );
 }
 
-function mapRow(m: Record<string, unknown>) {
+function mapRow(
+  m: Record<string, unknown>,
+  filesById: Map<string, StoredFileMeta[]>
+) {
   const batches = m.batches as { name?: string } | { name?: string }[] | null;
   const batchName = Array.isArray(batches) ? batches[0]?.name : batches?.name;
+  const id = m.id as string;
   return {
-    id: m.id as string,
+    id,
     subject_id: (m.subject_id as string | null) ?? null,
     batch_id: m.batch_id as string,
     batch_name: batchName ?? null,
     kind: m.kind as string,
     title: m.title as string,
     description: (m.description as string | null) ?? null,
-    file_name: m.file_name as string,
-    file_size: (m.file_size as number | null) ?? null,
-    mime_type: (m.mime_type as string | null) ?? null,
+    files: filesById.get(id) ?? [],
     created_at: m.created_at as string,
   };
 }
@@ -73,7 +77,13 @@ export async function GET(request: Request) {
     const { data, error } = await query;
     if (error) throw error;
 
-    return NextResponse.json((data ?? []).map(mapRow));
+    const rows = data ?? [];
+    const filesById = await filesByParent(
+      supabase,
+      "study_material_files",
+      rows.map((r) => r.id as string)
+    );
+    return NextResponse.json(rows.map((r) => mapRow(r, filesById)));
   } catch (error) {
     return handleError(error);
   }

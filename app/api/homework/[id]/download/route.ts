@@ -3,6 +3,7 @@ import { AuthError, requireUser } from "@/utils/auth";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { HOMEWORK_BUCKET } from "@/utils/homework";
 import { signedUrl, toStoredFile } from "@/utils/storage";
+import { resolveDownloadFile } from "@/utils/files";
 
 function handleError(error: unknown) {
   if (error instanceof AuthError)
@@ -25,10 +26,9 @@ export async function GET(
   try {
     const { supabase, user } = await requireUser();
     const { id } = await params;
-    const mode =
-      new URL(request.url).searchParams.get("mode") === "view"
-        ? "view"
-        : "download";
+    const url = new URL(request.url);
+    const mode = url.searchParams.get("mode") === "view" ? "view" : "download";
+    const fileId = url.searchParams.get("file");
 
     // Read the row via the service role so the decision doesn't depend on RLS;
     // authorization is enforced explicitly below for each role.
@@ -41,7 +41,7 @@ export async function GET(
       .eq("id", id)
       .maybeSingle();
     if (error) throw error;
-    if (!hw || hw.type !== "file" || !hw.file_path)
+    if (!hw || hw.type !== "file")
       return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     // --- Authorize ---
@@ -65,17 +65,27 @@ export async function GET(
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // --- Mint a short-lived, authorized URL (Supabase or Cloudinary per row) ---
-    const url = await signedUrl(
-      toStoredFile(hw.storage_provider, hw.file_path as string),
-      {
-        bucket: HOMEWORK_BUCKET,
-        mode,
-        fileName: (hw.file_name as string) || "homework",
-      }
-    );
+    // --- Resolve which file to serve: the requested `?file=` (verified to belong to
+    // this homework) or the first file; fall back to a legacy inline file. ---
+    const target = await resolveDownloadFile(admin, "homework_files", id, fileId);
+    const stored = target
+      ? { file: target.file, fileName: target.fileName }
+      : hw.file_path
+      ? {
+          file: toStoredFile(hw.storage_provider, hw.file_path as string),
+          fileName: (hw.file_name as string) || "homework",
+        }
+      : null;
+    if (!stored) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    return NextResponse.json({ url });
+    // --- Mint a short-lived, authorized URL (Supabase or Cloudinary per row) ---
+    const signed = await signedUrl(stored.file, {
+      bucket: HOMEWORK_BUCKET,
+      mode,
+      fileName: stored.fileName,
+    });
+
+    return NextResponse.json({ url: signed });
   } catch (error) {
     return handleError(error);
   }

@@ -1,282 +1,267 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button, Card, Empty, Flex, Space, Spin, Tag, Typography } from "antd";
 import {
-  App,
-  Button,
-  Card,
-  Empty,
-  Flex,
-  List,
-  Popconfirm,
-  Select,
-  Space,
-  Spin,
-  Tag,
-  Typography,
-} from "antd";
-import {
-  DeleteOutlined,
-  DownloadOutlined,
-  EyeOutlined,
+  ClockCircleOutlined,
   FileImageOutlined,
   FilePdfOutlined,
   PlusOutlined,
+  RightOutlined,
   SolutionOutlined,
 } from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
-import { formatFileSize, isImageMime } from "@/utils/studyMaterial";
+import { BatchPicker } from "@/components/admin/BatchPicker";
+import { DrillHeader } from "@/components/admin/DrillHeader";
+import { useDrillStack } from "@/components/admin/useDrillStack";
+import { isImageMime } from "@/utils/studyMaterial";
 import type { HomeworkListItem } from "@/utils/homework";
 
 const { Title, Text } = Typography;
 
-type BatchOption = { id: string; name: string };
+type Batch = {
+  id: string;
+  name: string;
+  start_time: string | null;
+  end_time: string | null;
+};
+
+type View = { mode: "batches" } | { mode: "list"; batchId: string; batchName: string };
+
+const ACCENT_FROM = "#818cf8";
+const ACCENT_TO = "#6366f1";
 
 /**
- * Admin Homework (F14): list every homework the teacher created (MCQ or file),
- * filterable by batch, with a Create action and per-row delete. Create lives on a
- * dedicated two-tab screen (`/admin/homework/new`).
+ * Admin Homework (F14, batch-first per D29): open on a batch grid (homework counts),
+ * drill into a batch's homework cards, and open a card's DETAIL page
+ * (`/admin/homework/[id]`) — the only place a homework is viewed/downloaded/deleted.
  */
 export default function AdminHomeworkPage() {
   const router = useRouter();
-  const { message } = App.useApp();
-  const [batches, setBatches] = useState<BatchOption[]>([]);
+  const [batches, setBatches] = useState<Batch[]>([]);
   const [items, setItems] = useState<HomeworkListItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filterBatch, setFilterBatch] = useState<string | undefined>();
-  const [busyId, setBusyId] = useState<string | null>(null);
 
-  const loadData = useCallback(async (batch?: string) => {
-    try {
-      const q = batch ? `?batch=${encodeURIComponent(batch)}` : "";
-      const res = await fetch(`/api/homework${q}`);
-      if (res.ok) setItems(await res.json());
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadData(filterBatch);
-  }, [loadData, filterBatch]);
+  const { current, push, back } = useDrillStack<View>({ mode: "batches" });
 
   useEffect(() => {
     (async () => {
-      const res = await fetch("/api/batches");
-      if (res.ok) {
-        const data = await res.json();
-        setBatches(
-          (data as { id: string; name: string }[]).map((b) => ({
-            id: b.id,
-            name: b.name,
-          }))
-        );
+      try {
+        const [bRes, hRes] = await Promise.all([
+          fetch("/api/batches"),
+          fetch("/api/homework"),
+        ]);
+        if (bRes.ok) setBatches(await bRes.json());
+        if (hRes.ok) setItems(await hRes.json());
+      } finally {
+        setLoading(false);
       }
     })();
   }, []);
 
-  const openFile = async (id: string, mode: "view" | "download") => {
-    try {
-      const res = await fetch(`/api/homework/${id}/download?mode=${mode}`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.url)
-        throw new Error(data.error || "Could not open the file");
-      window.open(data.url, "_blank", "noopener,noreferrer");
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : "Could not open the file");
+  const countByBatch = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const h of items) {
+      if (!h.batch_id) continue;
+      m.set(h.batch_id, (m.get(h.batch_id) ?? 0) + 1);
     }
-  };
+    return m;
+  }, [items]);
 
-  const handleDelete = async (h: HomeworkListItem) => {
-    setBusyId(h.id);
-    try {
-      const res = await fetch(`/api/homework/${h.id}`, { method: "DELETE" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Failed to delete");
-      setItems((prev) => prev.filter((x) => x.id !== h.id));
-      message.success(data.archived ? "Homework archived." : "Homework deleted.");
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : "Failed to delete");
-    } finally {
-      setBusyId(null);
-    }
-  };
+  const batchCards = useMemo(
+    () =>
+      batches.map((b) => ({
+        id: b.id,
+        name: b.name,
+        start_time: b.start_time,
+        end_time: b.end_time,
+        count: countByBatch.get(b.id) ?? 0,
+      })),
+    [batches, countByBatch]
+  );
+
+  const batchItems = useMemo(
+    () => (current.mode === "list" ? items.filter((h) => h.batch_id === current.batchId) : []),
+    [items, current]
+  );
+
+  const newHref =
+    current.mode === "list"
+      ? `/admin/homework/new?batch=${encodeURIComponent(current.batchId)}`
+      : "/admin/homework/new";
 
   return (
     <PageContainer>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 12,
-          flexWrap: "wrap",
-          marginBottom: 24,
-        }}
-      >
-        <div>
-          <Title level={3} style={{ margin: 0 }}>
-            Homework
-          </Title>
-          <Text type="secondary">
-            Assign MCQ practice or share a PDF/image for a batch to complete.
-          </Text>
-        </div>
-        <Space wrap>
-          <Select
-            allowClear
-            placeholder="All batches"
-            style={{ minWidth: 180 }}
-            value={filterBatch}
-            onChange={(v) => {
-              setLoading(true);
-              setFilterBatch(v);
+      {current.mode === "batches" ? (
+        <>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 12,
+              flexWrap: "wrap",
+              marginBottom: 24,
             }}
-            options={batches.map((b) => ({ value: b.id, label: b.name }))}
-          />
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => router.push("/admin/homework/new")}
           >
-            Create homework
-          </Button>
-        </Space>
-      </div>
-
-      {loading ? (
-        <div style={{ display: "flex", justifyContent: "center", padding: 48 }}>
-          <Spin />
-        </div>
-      ) : items.length === 0 ? (
-        <Card>
-          <Empty description="No homework yet. Create your first assignment.">
-            <Button type="primary" onClick={() => router.push("/admin/homework/new")}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 48,
+                  height: 48,
+                  flexShrink: 0,
+                  borderRadius: 14,
+                  fontSize: 22,
+                  color: "#fff",
+                  background: `linear-gradient(135deg, ${ACCENT_FROM} 0%, ${ACCENT_TO} 100%)`,
+                  boxShadow: `0 10px 22px -10px ${ACCENT_TO}`,
+                }}
+              >
+                <SolutionOutlined />
+              </span>
+              <div>
+                <Title level={3} style={{ margin: 0 }}>
+                  Homework
+                </Title>
+                <Text type="secondary">Pick a batch to see its homework</Text>
+              </div>
+            </div>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => router.push(newHref)}>
               Create homework
             </Button>
-          </Empty>
-        </Card>
+          </div>
+
+          <BatchPicker
+            batches={batchCards}
+            loading={loading}
+            icon={<SolutionOutlined />}
+            accentFrom={ACCENT_FROM}
+            accentTo={ACCENT_TO}
+            countNoun={(n) => `${n} homework`}
+            onSelect={(batchId) => {
+              const b = batches.find((x) => x.id === batchId);
+              push({ mode: "list", batchId, batchName: b?.name ?? "Batch" });
+            }}
+            empty={
+              <Empty description="No batches yet. Create a batch first, then assign homework.">
+                <Button type="primary" onClick={() => router.push("/admin/batches/new")}>
+                  Create a batch
+                </Button>
+              </Empty>
+            }
+          />
+        </>
       ) : (
-        <List
-          grid={{ gutter: 16, xs: 1, sm: 1, md: 2, lg: 2, xl: 3 }}
-          dataSource={items}
-          rowKey="id"
-          renderItem={(h) => (
-            <List.Item>
-              <Card
-                styles={{ body: { padding: 16 } }}
-                actions={
-                  h.type === "file"
-                    ? [
-                        <Button
-                          key="view"
-                          type="text"
-                          size="small"
-                          icon={<EyeOutlined />}
-                          onClick={() => openFile(h.id, "view")}
-                        >
-                          View
-                        </Button>,
-                        <Button
-                          key="dl"
-                          type="text"
-                          size="small"
-                          icon={<DownloadOutlined />}
-                          onClick={() => openFile(h.id, "download")}
-                        >
-                          Download
-                        </Button>,
-                        <Popconfirm
-                          key="del"
-                          title="Delete this homework?"
-                          description="If any student has done it, it is archived (history kept) instead."
-                          okText="Delete"
-                          okButtonProps={{ danger: true, loading: busyId === h.id }}
-                          onConfirm={() => handleDelete(h)}
-                        >
-                          <Button type="text" size="small" danger icon={<DeleteOutlined />}>
-                            Delete
-                          </Button>
-                        </Popconfirm>,
-                      ]
-                    : [
-                        <Popconfirm
-                          key="del"
-                          title="Delete this homework?"
-                          description="If any student has done it, it is archived (history kept) instead."
-                          okText="Delete"
-                          okButtonProps={{ danger: true, loading: busyId === h.id }}
-                          onConfirm={() => handleDelete(h)}
-                        >
-                          <Button type="text" size="small" danger icon={<DeleteOutlined />}>
-                            Delete
-                          </Button>
-                        </Popconfirm>,
-                      ]
-                }
-              >
-                <Flex align="flex-start" gap={12}>
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      width: 40,
-                      height: 40,
-                      borderRadius: 10,
-                      background: h.type === "mcq" ? "#ede9fe" : "#e0f2fe",
-                      color: h.type === "mcq" ? "#7c3aed" : "#0284c7",
-                      fontSize: 20,
-                      flexShrink: 0,
-                    }}
+        <>
+          <DrillHeader
+            crumbs={[{ label: "All batches", onClick: back }, { label: current.batchName }]}
+            title={current.batchName}
+            subtitle={`${batchItems.length} homework`}
+            icon={<SolutionOutlined />}
+            accentFrom={ACCENT_FROM}
+            accentTo={ACCENT_TO}
+            onBack={back}
+            extra={
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => router.push(newHref)}>
+                Create homework
+              </Button>
+            }
+          />
+
+          {loading ? (
+            <div style={{ display: "flex", justifyContent: "center", padding: 48 }}>
+              <Spin />
+            </div>
+          ) : batchItems.length === 0 ? (
+            <Card>
+              <Empty description="No homework in this batch yet.">
+                <Button type="primary" onClick={() => router.push(newHref)}>
+                  Create homework
+                </Button>
+              </Empty>
+            </Card>
+          ) : (
+            <div
+              style={{
+                display: "grid",
+                gap: 16,
+                gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+              }}
+            >
+              {batchItems.map((h) => {
+                const fileCount = h.files?.length ?? 0;
+                const firstMime = h.files?.[0]?.mime_type ?? null;
+                return (
+                  <Card
+                    key={h.id}
+                    hoverable
+                    className="tap"
+                    styles={{ body: { padding: 18 } }}
+                    style={{ borderRadius: 16 }}
+                    onClick={() => router.push(`/admin/homework/${h.id}`)}
                   >
-                    {h.type === "mcq" ? (
-                      <SolutionOutlined />
-                    ) : isImageMime(h.mime_type) ? (
-                      <FileImageOutlined />
-                    ) : (
-                      <FilePdfOutlined />
-                    )}
-                  </span>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <Text strong ellipsis style={{ display: "block", fontSize: 15 }}>
-                      {h.title}
-                    </Text>
-                    <Space size={[4, 4]} wrap style={{ marginTop: 4 }}>
-                      {h.batch_name ? <Tag>{h.batch_name}</Tag> : null}
-                      <Tag color={h.type === "mcq" ? "purple" : "blue"}>
-                        {h.type === "mcq" ? "MCQ" : "PDF / Image"}
-                      </Tag>
-                      <Tag color={h.is_published ? "green" : "default"}>
-                        {h.is_published ? "Published" : "Draft"}
-                      </Tag>
-                    </Space>
-                    <div style={{ marginTop: 8 }}>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
+                    <Flex align="flex-start" gap={12}>
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: 42,
+                          height: 42,
+                          borderRadius: 11,
+                          background: h.type === "mcq" ? "#ede9fe" : "#e0f2fe",
+                          color: h.type === "mcq" ? "#7c3aed" : "#0284c7",
+                          fontSize: 20,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {h.type === "mcq" ? (
+                          <SolutionOutlined />
+                        ) : isImageMime(firstMime) ? (
+                          <FileImageOutlined />
+                        ) : (
+                          <FilePdfOutlined />
+                        )}
+                      </span>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <Text strong ellipsis style={{ display: "block", fontSize: 15.5 }}>
+                          {h.title}
+                        </Text>
+                        <Space size={[4, 4]} wrap style={{ marginTop: 6 }}>
+                          <Tag color={h.type === "mcq" ? "purple" : "blue"} style={{ marginInlineEnd: 0 }}>
+                            {h.type === "mcq" ? "MCQ" : "PDF / Image"}
+                          </Tag>
+                          <Tag color={h.is_published ? "green" : "default"} style={{ marginInlineEnd: 0 }}>
+                            {h.is_published ? "Published" : "Draft"}
+                          </Tag>
+                        </Space>
+                      </div>
+                      <RightOutlined style={{ color: "rgba(148,163,184,0.9)", fontSize: 13, marginTop: 4 }} />
+                    </Flex>
+
+                    <div style={{ marginTop: 14 }}>
+                      <Text type="secondary" style={{ fontSize: 12.5 }}>
                         {h.type === "mcq"
                           ? `${h.question_count} question${h.question_count === 1 ? "" : "s"}`
-                          : `${h.file_name ?? "file"} · ${formatFileSize(h.file_size)}`}
-                        {h.due_at
-                          ? ` · Due ${new Date(h.due_at).toLocaleString()}`
-                          : ""}
+                          : `${fileCount} file${fileCount === 1 ? "" : "s"}`}
                       </Text>
+                      {h.due_at ? (
+                        <Text type="secondary" style={{ fontSize: 12.5, display: "block", marginTop: 4 }}>
+                          <ClockCircleOutlined style={{ marginRight: 6 }} />
+                          Due {new Date(h.due_at).toLocaleString()}
+                        </Text>
+                      ) : null}
                     </div>
-                    {h.description ? (
-                      <Text
-                        type="secondary"
-                        ellipsis
-                        style={{ display: "block", fontSize: 12, marginTop: 4 }}
-                      >
-                        {h.description}
-                      </Text>
-                    ) : null}
-                  </div>
-                </Flex>
-              </Card>
-            </List.Item>
+                  </Card>
+                );
+              })}
+            </div>
           )}
-        />
+        </>
       )}
     </PageContainer>
   );
