@@ -4,8 +4,14 @@
 /** The storage bucket that holds the note bytes (private; see migration + D24). */
 export const STUDY_BUCKET = "study-material";
 
-/** Max upload size — 25 MB. Notes (PDFs / images) are comfortably under this. */
-export const MAX_FILE_BYTES = 25 * 1024 * 1024;
+/** Max upload size per file — 100 MB (large scanned PDFs fit comfortably). */
+export const MAX_FILE_BYTES = 100 * 1024 * 1024;
+
+/** Human label for the size cap, reused in UI copy + API error messages. */
+export const MAX_FILE_LABEL = "100 MB";
+
+/** Max number of files attachable to one note / one file-homework in a single go. */
+export const MAX_FILES_PER_ITEM = 20;
 
 /**
  * Accepted content types for a note file: PDF or a common raster image (D25).
@@ -61,6 +67,18 @@ export type Subject = {
   created_at: string;
 };
 
+/**
+ * A single attached file (child row) as returned by the list/detail APIs. A note or
+ * a file-homework may own several of these. Storage internals (path/provider) stay
+ * server-side; the browser only ever gets an id it can pass to the download route.
+ */
+export type StoredFileMeta = {
+  id: string;
+  file_name: string;
+  file_size: number | null;
+  mime_type: string | null;
+};
+
 /** A study-material (note) row as returned by the list APIs (no storage internals). */
 export type StudyMaterial = {
   id: string;
@@ -70,9 +88,8 @@ export type StudyMaterial = {
   kind: string;
   title: string;
   description: string | null;
-  file_name: string;
-  file_size: number | null;
-  mime_type: string | null;
+  /** All files attached to this note (may be empty for a legacy row with none). */
+  files: StoredFileMeta[];
   created_at: string;
 };
 

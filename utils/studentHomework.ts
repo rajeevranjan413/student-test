@@ -8,6 +8,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { AuthError } from "./auth";
 import { createAdminClient } from "./supabase/admin";
 import { enrolledBatchIds } from "./studentTests";
+import { filesForParent } from "./files";
+import type { StoredFileMeta } from "./studyMaterial";
 import { normalizeOptions, scoreAttempt, type Answer, type Option } from "./test";
 
 export type StudentHomework = {
@@ -20,9 +22,8 @@ export type StudentHomework = {
   due_at: string | null;
   marks_per_question: number;
   negative_marking: number;
-  file_name: string | null;
-  file_size: number | null;
-  mime_type: string | null;
+  /** Attached files (file-kind homework only; empty for MCQ). */
+  files: StoredFileMeta[];
 };
 
 export type HomeworkAttemptRow = {
@@ -45,7 +46,7 @@ export type PublicHomeworkQuestion = {
 };
 
 const HOMEWORK_COLUMNS =
-  "id, batch_id, type, title, description, due_at, marks_per_question, negative_marking, file_name, file_size, mime_type, status, is_published, archived_at, batches(name)";
+  "id, batch_id, type, title, description, due_at, marks_per_question, negative_marking, status, is_published, archived_at, batches(name)";
 
 function flattenBatchName(batches: unknown): string | null {
   if (Array.isArray(batches)) return batches[0]?.name ?? null;
@@ -80,6 +81,11 @@ export async function requireStudentHomework(
   if (!batchIds.includes(data.batch_id))
     throw new AuthError("You are not enrolled in this homework's batch.", 403);
 
+  const files =
+    data.type === "file"
+      ? await filesForParent(supabase, "homework_files", data.id)
+      : [];
+
   return {
     id: data.id,
     batch_id: data.batch_id,
@@ -90,9 +96,7 @@ export async function requireStudentHomework(
     due_at: data.due_at ?? null,
     marks_per_question: data.marks_per_question ?? 1,
     negative_marking: Number(data.negative_marking ?? 0),
-    file_name: data.file_name ?? null,
-    file_size: data.file_size ?? null,
-    mime_type: data.mime_type ?? null,
+    files,
   };
 }
 

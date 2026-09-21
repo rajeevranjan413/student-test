@@ -2,9 +2,23 @@
 // Route Handlers and the antd pages import from one place. File-homework uploads
 // reuse the same accepted-mime rules as Study Material (PDF or common image).
 
-import { ACCEPTED_MIMES, ACCEPT_ATTR, MAX_FILE_BYTES } from "./studyMaterial";
+import {
+  ACCEPTED_MIMES,
+  ACCEPT_ATTR,
+  MAX_FILE_BYTES,
+  MAX_FILE_LABEL,
+  MAX_FILES_PER_ITEM,
+  type StoredFileMeta,
+} from "./studyMaterial";
 
-export { ACCEPTED_MIMES, ACCEPT_ATTR, MAX_FILE_BYTES };
+export {
+  ACCEPTED_MIMES,
+  ACCEPT_ATTR,
+  MAX_FILE_BYTES,
+  MAX_FILE_LABEL,
+  MAX_FILES_PER_ITEM,
+};
+export type { StoredFileMeta };
 
 /** The storage bucket that holds `file` homework bytes (private; see migration). */
 export const HOMEWORK_BUCKET = "homework";
@@ -26,9 +40,8 @@ export type HomeworkListItem = {
   due_at: string | null;
   total_questions: number | null;
   question_count: number;
-  file_name: string | null;
-  file_size: number | null;
-  mime_type: string | null;
+  /** Attached files (file-kind homework only; empty for MCQ). */
+  files: StoredFileMeta[];
   status: HomeworkStatus;
   is_published: boolean;
   created_at: string;
@@ -44,9 +57,8 @@ export type StudentHomeworkItem = {
   description: string | null;
   due_at: string | null;
   question_count: number;
-  file_name: string | null;
-  file_size: number | null;
-  mime_type: string | null;
+  /** Attached files (file-kind homework only; empty for MCQ). */
+  files: StoredFileMeta[];
   created_at: string;
   // The student's own attempt (null until they submit / mark done).
   attempt: {
