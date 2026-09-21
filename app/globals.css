@@ -124,6 +124,39 @@
   }
 }
 
+/* 5a. Rich-text editor (RichTextInput) + rendered question/explanation content (D31). */
+.rte-editable:empty::before {
+  content: attr(data-placeholder);
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+.rte-editable:focus {
+  outline: none;
+}
+/* Lists authored in the editor (and re-rendered by QuestionContent) need their
+   markers back — Tailwind's preflight strips list styling by default. */
+.rte-editable ul,
+.rte-editable ol,
+.question-content ul,
+.question-content ol {
+  padding-left: 1.5em;
+  margin: 0.25em 0;
+}
+.rte-editable ul,
+.question-content ul {
+  list-style: disc;
+}
+.rte-editable ol,
+.question-content ol {
+  list-style: decimal;
+}
+.question-content p {
+  margin: 0 0 0.4em;
+}
+.question-content p:last-child {
+  margin-bottom: 0;
+}
+
 /* 5b. Premium antd polish — applied globally so every admin/student antd screen
       shares the same elevated look (antd has no resting-card shadow token, so it
       lives here). Cards get a soft resting shadow + a subtle hover lift; the

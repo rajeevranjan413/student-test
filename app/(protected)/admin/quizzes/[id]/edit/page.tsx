@@ -17,8 +17,6 @@ import {
   Form,
   Input,
   InputNumber,
-  Modal,
-  Radio,
   Row,
   Select,
   Space,
@@ -34,8 +32,10 @@ import {
 import { DIFFICULTY_COLORS } from "@/utils/constants";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { formatBatchTiming } from "@/utils/batch";
+import { QuestionEditorModal } from "@/components/admin/QuestionEditorModal";
+import { QuestionContent } from "@/components/QuestionContent";
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 
 type Option = { key: string; text: string };
 type GQ = {
@@ -385,9 +385,10 @@ export default function EditTestPage({
             {questions.map((q, i) => (
               <Card key={q.uid} size="small">
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                  <Text strong>
-                    {i + 1}. {q.text}
-                  </Text>
+                  <div style={{ flex: 1, fontWeight: 600 }}>
+                    <Text strong>{i + 1}. </Text>
+                    <QuestionContent value={q.text} style={{ display: "inline", fontWeight: 600 }} />
+                  </div>
                   {q.difficulty && (
                     <Tag color={DIFFICULTY_COLORS[q.difficulty] ?? "default"}>
                       {q.difficulty}
@@ -407,9 +408,9 @@ export default function EditTestPage({
                   ))}
                 </Space>
                 {q.explanation && (
-                  <Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                    {q.explanation}
-                  </Paragraph>
+                  <div style={{ marginBottom: 8, color: "var(--muted-foreground)" }}>
+                    <QuestionContent value={q.explanation} />
+                  </div>
                 )}
                 {questionsEditable && (
                   <Space wrap>
@@ -436,101 +437,15 @@ export default function EditTestPage({
       </div>
 
       {editing && (
-        <EditQuestionModal
+        <QuestionEditorModal
           key={editing.uid}
           question={editing}
           isNew={editingIsNew}
+          itemNoun="test"
           onCancel={closeEditor}
           onSave={saveEdit}
         />
       )}
     </PageContainer>
-  );
-}
-
-function EditQuestionModal({
-  question,
-  isNew = false,
-  onCancel,
-  onSave,
-}: {
-  question: GQ;
-  isNew?: boolean;
-  onCancel: () => void;
-  onSave: (q: GQ) => void;
-}) {
-  const { message } = App.useApp();
-  const [text, setText] = useState(question.text);
-  const [options, setOptions] = useState<Option[]>(() =>
-    OPTION_KEYS.map(
-      (k) => question.options.find((o) => o.key === k) ?? { key: k, text: "" }
-    )
-  );
-  const [correct, setCorrect] = useState(question.correctOptionKey);
-  const [explanation, setExplanation] = useState(question.explanation ?? "");
-
-  const handleOk = () => {
-    const trimmedText = text.trim();
-    const trimmedOptions = options.map((o) => ({ ...o, text: o.text.trim() }));
-    if (!trimmedText) {
-      message.error("Enter the question text.");
-      return;
-    }
-    if (trimmedOptions.some((o) => !o.text)) {
-      message.error("Fill in all four options.");
-      return;
-    }
-    onSave({
-      ...question,
-      text: trimmedText,
-      options: trimmedOptions,
-      correctOptionKey: correct,
-      explanation: explanation.trim(),
-    });
-  };
-
-  return (
-    <Modal
-      open
-      title={isNew ? "Add question" : "Edit question"}
-      onCancel={onCancel}
-      onOk={handleOk}
-      okText={isNew ? "Add to test" : "Save"}
-      destroyOnHidden
-    >
-      <Space direction="vertical" style={{ width: "100%" }}>
-        <Text>Question</Text>
-        <Input.TextArea rows={2} value={text} onChange={(e) => setText(e.target.value)} />
-        <Text>Options (select the correct one)</Text>
-        <Radio.Group
-          value={correct}
-          onChange={(e) => setCorrect(e.target.value)}
-          style={{ width: "100%" }}
-        >
-          <Space direction="vertical" style={{ width: "100%" }}>
-            {options.map((o, i) => (
-              <div key={o.key} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <Radio value={o.key} />
-                <Input
-                  addonBefore={o.key}
-                  value={o.text}
-                  onChange={(e) => {
-                    const copy = [...options];
-                    copy[i] = { ...o, text: e.target.value };
-                    setOptions(copy);
-                  }}
-                />
-              </div>
-            ))}
-          </Space>
-        </Radio.Group>
-        <Text>Explanation</Text>
-        <Input.TextArea
-          rows={2}
-          value={explanation}
-          onChange={(e) => setExplanation(e.target.value)}
-        />
-      </Space>
-    </Modal>
   );
 }

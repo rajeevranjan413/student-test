@@ -21,6 +21,7 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import {
   ArrowLeftOutlined,
+  DeleteOutlined,
   EditOutlined,
   UserAddOutlined,
 } from "@ant-design/icons";
@@ -129,6 +130,20 @@ export default function BatchDetailPage({
     } catch (e) {
       message.error(e instanceof Error ? e.message : "Failed to enroll student.");
     } finally {
+      setBusy(false);
+    }
+  };
+
+  const archiveBatch = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/batches/${id}`, { method: "DELETE" });
+      if (!res.ok)
+        throw new Error((await res.json().catch(() => ({}))).error ?? "Failed");
+      message.success("Batch archived.");
+      router.push("/admin/batches");
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "Failed to archive batch.");
       setBusy(false);
     }
   };
@@ -270,12 +285,25 @@ export default function BatchDetailPage({
         <Title level={3} style={{ margin: 0 }}>
           {data.name ?? "Batch"}
         </Title>
-        <Button
-          icon={<EditOutlined />}
-          onClick={() => router.push(`/admin/batches/${id}/edit`)}
-        >
-          Edit batch
-        </Button>
+        <Flex gap={8} wrap>
+          <Button
+            icon={<EditOutlined />}
+            onClick={() => router.push(`/admin/batches/${id}/edit`)}
+          >
+            Edit batch
+          </Button>
+          <Popconfirm
+            title="Archive this batch?"
+            description="It is hidden from lists and signup; results/history are kept."
+            okText="Archive"
+            okButtonProps={{ danger: true }}
+            onConfirm={archiveBatch}
+          >
+            <Button danger icon={<DeleteOutlined />} disabled={busy}>
+              Archive
+            </Button>
+          </Popconfirm>
+        </Flex>
       </Flex>
 
       <Row gutter={[16, 16]}>

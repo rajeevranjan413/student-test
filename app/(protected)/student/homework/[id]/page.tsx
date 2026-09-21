@@ -26,6 +26,7 @@ import {
   FilePdfOutlined,
 } from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
+import { QuestionContent } from "@/components/QuestionContent";
 import { formatFileSize, isImageMime } from "@/utils/studyMaterial";
 
 const { Title, Text, Paragraph } = Typography;
@@ -328,9 +329,10 @@ export default function StudentHomeworkDetail() {
             <Space direction="vertical" style={{ width: "100%" }} size="middle">
               {review.map((q, i) => (
                 <Card key={q.id} size="small">
-                  <Text strong>
-                    {i + 1}. {q.text}
-                  </Text>
+                  <div style={{ fontWeight: 600 }}>
+                    <Text strong>{i + 1}. </Text>
+                    <QuestionContent value={q.text} style={{ display: "inline", fontWeight: 600 }} />
+                  </div>
                   <Space direction="vertical" size={2} style={{ margin: "8px 0", width: "100%" }}>
                     {q.options.map((o) => {
                       const isCorrect = o.key === q.correctKey;
@@ -351,9 +353,9 @@ export default function StudentHomeworkDetail() {
                     <Tag color="warning">Not answered</Tag>
                   )}
                   {q.explanation ? (
-                    <Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
-                      {q.explanation}
-                    </Paragraph>
+                    <div style={{ marginTop: 8, color: "var(--muted-foreground)" }}>
+                      <QuestionContent value={q.explanation} />
+                    </div>
                   ) : null}
                 </Card>
               ))}
@@ -364,9 +366,10 @@ export default function StudentHomeworkDetail() {
               <Space direction="vertical" style={{ width: "100%" }} size="middle">
                 {data.questions.map((q, i) => (
                   <Card key={q.id} size="small">
-                    <Text strong>
-                      {i + 1}. {q.text}
-                    </Text>
+                    <div style={{ fontWeight: 600 }}>
+                      <Text strong>{i + 1}. </Text>
+                      <QuestionContent value={q.text} style={{ display: "inline", fontWeight: 600 }} />
+                    </div>
                     <Radio.Group
                       style={{ width: "100%", marginTop: 8 }}
                       value={answers[q.id]}

@@ -3,12 +3,14 @@
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  App,
   Button,
   Card,
   Col,
   Descriptions,
   Empty,
   Flex,
+  Popconfirm,
   Row,
   Space,
   Spin,
@@ -17,7 +19,12 @@ import {
   Typography,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { ArrowLeftOutlined } from "@ant-design/icons";
+import {
+  ArrowLeftOutlined,
+  CheckCircleOutlined,
+  DeleteOutlined,
+  StopOutlined,
+} from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { ResponsiveTable } from "@/components/layout/ResponsiveTable";
 import { formatBatchTiming } from "@/utils/batch";
@@ -53,6 +60,7 @@ type Payload = {
     full_name: string | null;
     email: string | null;
     phone: string | null;
+    active: boolean;
     created_at: string | null;
   };
   batches: { id: string; name: string | null; start_time: string | null; end_time: string | null }[];
@@ -87,9 +95,46 @@ export default function StudentDetailPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
+  const { message } = App.useApp();
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const setActive = async (active: boolean) => {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/students/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active }),
+      });
+      if (!res.ok)
+        throw new Error((await res.json().catch(() => ({}))).error ?? "Update failed");
+      setData((prev) =>
+        prev ? { ...prev, student: { ...prev.student, active } } : prev
+      );
+      message.success(active ? "Student activated." : "Student deactivated.");
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : "Update failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/students/${id}`, { method: "DELETE" });
+      if (!res.ok)
+        throw new Error((await res.json().catch(() => ({}))).error ?? "Delete failed");
+      message.success("Student deleted.");
+      router.push("/admin/students");
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : "Delete failed");
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     (async () => {
@@ -224,9 +269,53 @@ export default function StudentDetailPage({
         Students
       </Button>
 
-      <Title level={3} style={{ margin: "0 0 16px" }}>
-        {student.full_name ?? "Student"}
-      </Title>
+      <Flex
+        align="center"
+        justify="space-between"
+        gap={12}
+        wrap
+        style={{ margin: "0 0 16px" }}
+      >
+        <Space align="center" size={12}>
+          <Title level={3} style={{ margin: 0 }}>
+            {student.full_name ?? "Student"}
+          </Title>
+          <Tag color={student.active ? "green" : "red"}>
+            {student.active ? "Active" : "Inactive"}
+          </Tag>
+        </Space>
+        <Space wrap>
+          {student.active ? (
+            <Button
+              icon={<StopOutlined />}
+              loading={busy}
+              onClick={() => setActive(false)}
+            >
+              Deactivate
+            </Button>
+          ) : (
+            <Button
+              icon={<CheckCircleOutlined />}
+              loading={busy}
+              onClick={() => setActive(true)}
+            >
+              Activate
+            </Button>
+          )}
+          <Popconfirm
+            title="Delete this student?"
+            description="This permanently removes the account and all its history."
+            okText="Delete"
+            okButtonProps={{ danger: true }}
+            cancelText="Cancel"
+            onConfirm={remove}
+          >
+            <Button danger icon={<DeleteOutlined />} loading={busy}>
+              Delete
+            </Button>
+          </Popconfirm>
+        </Space>
+      </Flex>
 
       <Row gutter={[16, 16]}>
         <Col xs={24} md={14}>

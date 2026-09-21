@@ -26,8 +26,9 @@ import {
   MinusCircleTwoTone,
 } from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
+import { QuestionContent } from "@/components/QuestionContent";
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 const { Countdown } = Statistic;
 
 type Option = { key: string; text: string };
@@ -365,9 +366,10 @@ export default function TakeTestPage({
                 ) : (
                   <CloseCircleTwoTone twoToneColor="#ff4d4f" />
                 )}
-                <Text strong>
-                  {i + 1}. {r.text}
-                </Text>
+                <div style={{ flex: 1, fontWeight: 600 }}>
+                  <Text strong>{i + 1}. </Text>
+                  <QuestionContent value={r.text} style={{ display: "inline", fontWeight: 600 }} />
+                </div>
               </Flex>
               <Flex vertical gap={4} style={{ paddingLeft: 24 }}>
                 {r.options.map((o) => {
@@ -386,9 +388,9 @@ export default function TakeTestPage({
                 })}
                 {r.chosenKey == null && <Text type="secondary">Not answered</Text>}
                 {r.explanation && (
-                  <Text type="secondary" italic>
-                    {r.explanation}
-                  </Text>
+                  <div style={{ color: "var(--muted-foreground)", fontStyle: "italic" }}>
+                    <QuestionContent value={r.explanation} />
+                  </div>
                 )}
               </Flex>
             </Card>
@@ -445,9 +447,10 @@ export default function TakeTestPage({
       <Flex vertical gap={16}>
         {questions.map((q, i) => (
           <Card key={q.id} size="small">
-            <Paragraph strong style={{ marginBottom: 12 }}>
-              {i + 1}. {q.text}
-            </Paragraph>
+            <div style={{ marginBottom: 12, fontWeight: 600 }}>
+              <Text strong>{i + 1}. </Text>
+              <QuestionContent value={q.text} style={{ display: "inline", fontWeight: 600 }} />
+            </div>
             <Radio.Group
               value={answers[q.id]}
               onChange={(e) => pick(q.id, e.target.value)}

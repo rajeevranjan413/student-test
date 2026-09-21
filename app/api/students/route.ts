@@ -78,6 +78,7 @@ export async function GET() {
         tests_taken: st?.taken ?? 0,
         last_activity: st?.last ? new Date(st.last).toISOString() : null,
         created_at: s.created_at ?? null,
+        active: c?.active ?? true,
       };
     });
 

@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AuthError, requireTeacher } from "@/utils/auth";
 import { contactFor } from "@/utils/students";
+import { createAdminClient } from "@/utils/supabase/admin";
 import { computePhase, computeTiming, deriveOutcome } from "@/utils/test";
+
+// A far-future ban that effectively disables an account until it's reactivated.
+// Supabase accepts a Go duration string; ~100 years reads as "indefinite".
+const DEACTIVATE_DURATION = "876000h";
 
 function handleError(error: unknown) {
   if (error instanceof AuthError)
@@ -187,12 +192,93 @@ export async function GET(
         full_name: (profile.full_name as string | null) ?? null,
         email: contact.email,
         phone: contact.phone,
+        active: contact.active,
         created_at: profile.created_at ?? null,
       },
       batches,
       history,
       summary: { ...summary, average_percent: averagePercent },
     });
+  } catch (error) {
+    return handleError(error);
+  }
+}
+
+/**
+ * Confirm the id belongs to a **student** (not a teacher, not missing) before any
+ * account-level action. Returns the profile row, or `null` to 404 — so these routes
+ * can never activate/deactivate/delete a teacher account.
+ */
+async function assertStudent(
+  supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
+  id: string
+) {
+  const { data: profile, error } = await supabase
+    .from("profiles")
+    .select("id, role")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  if (!profile || profile.role !== "student") return null;
+  return profile;
+}
+
+// PATCH /api/students/[id] — teacher-only: activate/deactivate a student account.
+// Body: { active: boolean }. Deactivating bans the auth user (far-future) so they
+// can no longer sign in; activating clears the ban. Uses the service role (auth
+// admin API); 404 for a non-student id so a teacher account is never touched.
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { supabase } = await requireTeacher();
+    const { id } = await params;
+
+    const student = await assertStudent(supabase, id);
+    if (!student)
+      return NextResponse.json({ error: "Student not found." }, { status: 404 });
+
+    const body = (await request.json().catch(() => ({}))) as { active?: unknown };
+    if (typeof body.active !== "boolean")
+      return NextResponse.json(
+        { error: "Body must include a boolean `active`." },
+        { status: 400 }
+      );
+
+    const admin = createAdminClient();
+    const { error } = await admin.auth.admin.updateUserById(id, {
+      ban_duration: body.active ? "none" : DEACTIVATE_DURATION,
+    });
+    if (error) throw error;
+
+    return NextResponse.json({ id, active: body.active });
+  } catch (error) {
+    return handleError(error);
+  }
+}
+
+// DELETE /api/students/[id] — teacher-only: permanently remove a student account.
+// Deletes the auth user; the profile and all child rows (enrollments, attempts,
+// homework attempts, push subs) cascade via ON DELETE CASCADE. Intentional
+// hard-delete (F5) — the admin's explicit choice, gated by a confirm in the UI.
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { supabase } = await requireTeacher();
+    const { id } = await params;
+
+    const student = await assertStudent(supabase, id);
+    if (!student)
+      return NextResponse.json({ error: "Student not found." }, { status: 404 });
+
+    const admin = createAdminClient();
+    const { error } = await admin.auth.admin.deleteUser(id);
+    if (error) throw error;
+
+    return NextResponse.json({ id, deleted: true });
   } catch (error) {
     return handleError(error);
   }

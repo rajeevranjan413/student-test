@@ -27,6 +27,7 @@ import {
   SolutionOutlined,
 } from "@ant-design/icons";
 import { PageContainer } from "@/components/layout/PageContainer";
+import { QuestionContent } from "@/components/QuestionContent";
 import { DIFFICULTY_COLORS } from "@/utils/constants";
 import { formatFileSize, isImageMime, type StoredFileMeta } from "@/utils/studyMaterial";
 
@@ -285,9 +286,7 @@ export default function HomeworkDetailPage({
                 <div key={q.uid}>
                   <Flex align="flex-start" gap={8} wrap>
                     <Text strong>{i + 1}.</Text>
-                    <Text strong style={{ flex: 1, minWidth: 0 }}>
-                      {q.text}
-                    </Text>
+                    <QuestionContent value={q.text} style={{ flex: 1, minWidth: 0, fontWeight: 600 }} />
                     {q.difficulty ? (
                       <Tag color={DIFFICULTY_COLORS[q.difficulty] ?? "default"}>{q.difficulty}</Tag>
                     ) : null}
@@ -320,12 +319,12 @@ export default function HomeworkDetailPage({
                     })}
                   </div>
                   {q.explanation ? (
-                    <Paragraph type="secondary" style={{ fontSize: 12.5, marginTop: 8, marginBottom: 0 }}>
+                    <div style={{ fontSize: 12.5, marginTop: 8, color: "var(--muted-foreground)" }}>
                       <Text strong style={{ fontSize: 12.5 }}>
                         Explanation:{" "}
                       </Text>
-                      {q.explanation}
-                    </Paragraph>
+                      <QuestionContent value={q.explanation} style={{ display: "inline" }} />
+                    </div>
                   ) : null}
                 </div>
               ))}

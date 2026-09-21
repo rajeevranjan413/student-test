@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 
 export async function POST(request: Request) {
   try {
-    const { email, password } = await request.json();
+    const { email, password, expectedRole } = await request.json();
     const cookieStore = await cookies();
 
     // 1. FIXED: Using PUBLISHABLE_KEY and getAll/setAll cookie syntax
@@ -69,6 +69,17 @@ export async function POST(request: Request) {
       }
 
       if (error) throw error;
+
+      // Enforce the door: a teacher account may only sign in via the teacher
+      // page. If they came through the student door, undo the session.
+      if (expectedRole && expectedRole !== 'teacher') {
+        await supabase.auth.signOut();
+        return NextResponse.json(
+          { error: 'Please use the teacher login page.' },
+          { status: 403 }
+        );
+      }
+
       return NextResponse.json({
         user: data?.user,
         role: 'teacher',
@@ -94,7 +105,21 @@ export async function POST(request: Request) {
       .eq('id', data.user.id)
       .single();
 
-    return NextResponse.json({ user: data.user, role: profile?.role ?? 'student' });
+    const role = profile?.role ?? 'student';
+
+    // Enforce the door: the account's actual role must match the page the user
+    // signed in from. On a mismatch, undo the session and point them to the
+    // right door. (Omitted/unknown expectedRole keeps the old any-role path.)
+    if (expectedRole && expectedRole !== role) {
+      await supabase.auth.signOut();
+      const correctDoor = role === 'teacher' ? 'teacher' : 'student';
+      return NextResponse.json(
+        { error: `Please use the ${correctDoor} login page.` },
+        { status: 403 }
+      );
+    }
+
+    return NextResponse.json({ user: data.user, role });
   } catch (error) {
     console.error("Login Error:", error);
     return NextResponse.json(

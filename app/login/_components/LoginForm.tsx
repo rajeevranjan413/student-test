@@ -11,10 +11,10 @@ const ROLE_ICON = { student: GraduationCap, teacher: Presentation } as const;
 
 /**
  * Single-purpose sign-in form. The role is fixed by which page renders it
- * (`/login/student` vs `/login/teacher`) — there is no in-form toggle. The
- * server still decides the *actual* role from the credentials and returns it,
- * so we always redirect to the correct dashboard regardless of which door the
- * user came through.
+ * (`/login/student` vs `/login/teacher`) — there is no in-form toggle. That page
+ * role is posted as `expectedRole` and the server enforces it: a student's
+ * credentials are rejected on the teacher door and vice-versa (403). On success
+ * the server still returns the actual role, which we use to pick the dashboard.
  */
 export function LoginForm({
   role,
@@ -43,7 +43,7 @@ export function LoginForm({
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, expectedRole: role }),
       });
 
       const data = await res.json();
@@ -52,9 +52,8 @@ export function LoginForm({
         throw new Error(data.error || "Failed to login");
       }
 
-      // Redirect by the user's ACTUAL role (from the server), not the page the
-      // form lives on — a student who lands on the teacher form still goes to
-      // the student dashboard.
+      // The server has already confirmed the role matches this door; use the
+      // returned role to pick the destination dashboard.
       const destination = data.role === "teacher" ? "/admin" : "/student";
       router.push(destination);
       router.refresh();
