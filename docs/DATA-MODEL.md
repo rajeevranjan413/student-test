@@ -112,6 +112,13 @@ Email/phone live in `auth.users` (query via service role when the admin needs th
 > This is now enforced at the DB: `correct_answer` and `explanation` are
 > column-REVOKEd from `anon`/`authenticated`, so only the **service-role** client
 > (`utils/supabase/admin.ts`) can read them. See the RLS section.
+>
+> **Content shape (D31 — no schema change):** `question_text` and `explanation` are
+> **self-describing** text: a value may be plain text (legacy + AI), a small
+> **formatting-HTML** subset (`b/strong/i/em/u/p/br/ul/ol/li`, from the editor's Text
+> tab), or an inline **image** stored as a `data:image/…;base64,…` URI (Image tab). The
+> renderer (`components/QuestionContent.tsx`) branches on the `data:image/` prefix /
+> presence of allowlisted tags and sanitizes HTML at display; `options` stay plain text.
 
 ### quiz_attempts (one attempt per student per quiz)
 | Column | Type | Notes |
@@ -249,7 +256,9 @@ objects first so no bytes are orphaned.
 | `created_at` | timestamptz | |
 
 > **Answer secrecy** is identical to `questions`: only the **service-role** client
-> reads `correct_answer`/`explanation` (scoring + admin/post-submit review).
+> reads `correct_answer`/`explanation` (scoring + admin/post-submit review). The
+> **content shape** (plain text / formatting-HTML / inline image data URI, D31) is
+> identical to `questions` too — same shared editor + renderer, no schema change.
 
 ### homework_attempts (one per student per homework)
 | Column | Type | Notes |

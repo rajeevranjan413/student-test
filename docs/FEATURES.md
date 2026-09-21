@@ -45,6 +45,14 @@ app header (see D23). *(Tailwind — existing.)*
   the sign-in / role-chooser screens.
 - Teacher bootstrapped from `TEACHER_EMAIL`/`TEACHER_PASSWORD` (auto-provisioned on
   first login).
+- **Each sign-in door only accepts its own role.** The form posts its page role as
+  `expectedRole` and `POST /api/auth/login` enforces it server-side: after
+  authenticating it compares the account's actual role to `expectedRole` and, on a
+  mismatch, signs the session back out and returns `403` (`Please use the <role>
+  login page.`). So a student cannot sign in on `/login/teacher` and a teacher
+  cannot sign in on `/login/student` — the client no longer decides this by
+  redirect. `expectedRole` is optional; omitted (or an unknown value) preserves the
+  old any-role behaviour.
 - **Student self-registration is gated by a per-batch `secret_pass`** (the
   enrollment code the teacher hands out — see `DATA-MODEL.md → batches.secret_pass`),
   **not** a single global secret. A student may select **multiple** batches and
@@ -66,6 +74,8 @@ app header (see D23). *(Tailwind — existing.)*
 - [x] Authed user visiting `/`, `/login`, or `/signup` is redirected to their home
       page (teacher → `/admin`, student → `/student`) — no role chooser reshown.
 - [x] Student cannot reach admin routes/APIs (middleware + `requireTeacher`).
+- [x] A student's credentials are rejected on `/login/teacher` and a teacher's on
+      `/login/student` (`expectedRole` mismatch → 403, session signed back out).
 - [x] Logout clears session.
 - [x] Public leaderboard loads with no session *(F8 done)*.
 - [x] Student registers with the **batch's** enrollment code (wrong code → 400,
@@ -101,10 +111,15 @@ back to the old dashboard, so the switch was impossible.
 
 **Goal:** Group students into batches; tests belong to a batch.
 
-**UI:** `/admin/batches` (list, *Tailwind* — with Students/Tests count columns and a
-detail link), `/admin/batches/new` (create, *Tailwind*), `/admin/batches/[id]`
-(detail hub, *antd*: batch info + enrolled students with add/remove + the batch's
-tests), `/admin/batches/[id]/edit` (*antd* form → `PUT`).
+**UI:** `/admin/batches` (list, *antd* — a **premium batch-card grid** matching the
+Tests/Homework/Study-Material batch cards (D29): gradient icon tile, timing, exam
+level, and stat pills for **students** & **tests** counts plus the enrollment
+`secret_pass`; tapping a card drills into the detail hub. The list is
+**navigation-only — no edit/delete actions live here**), `/admin/batches/new`
+(create, *Tailwind*), `/admin/batches/[id]` (detail hub, *antd*: batch info +
+enrolled students with add/remove + the batch's tests — the **only** place a batch
+is **edited or archived**, via Edit batch + an Archive `Popconfirm`),
+`/admin/batches/[id]/edit` (*antd* form → `PUT`).
 
 **Rules:**
 - Teacher-only API. Batch soft-delete = archive (`status='archived'`), never
@@ -114,6 +129,9 @@ tests), `/admin/batches/[id]/edit` (*antd* form → `PUT`).
   **service role** (no browser write policy on that table, D11); both guard
   `requireTeacher` **and** batch ownership.
 - Public signup list via `/api/public/batches` exposes only `id,name,start_time,end_time`.
+- **Edit/Archive live only on the detail hub** (`/admin/batches/[id]`). The list grid
+  is navigation-only; Archive there `DELETE`s (soft) via a `Popconfirm`, then routes
+  back to the list.
 - A batch carries a **class timing** (`start_time`/`end_time`, time-of-day) instead of a
   free-text course. Both are required on create/edit; shown as a formatted range in the UI
   (helper `utils/batch.ts#formatBatchTiming`). The legacy `course` column is retained
@@ -123,7 +141,9 @@ tests), `/admin/batches/[id]/edit` (*antd* form → `PUT`).
 - [x] Create / list / archive a batch (teacher-only).
 - [x] **Edit** batch (`/admin/batches/[id]/edit` → `PUT /api/batches/[id]`).
 - [x] Batch **detail**: enrolled students + batch's tests + add/remove student.
-- [x] List shows accurate student & test **counts**.
+- [x] List is a batch-card grid showing accurate student & test **counts** (+ timing,
+      exam level, secret pass); no edit/delete actions on the list — those live on the
+      detail hub only.
 - [x] Batch has **start/end timing** (replaces course) surfaced everywhere a batch is shown.
 
 **Code:** `app/(protected)/admin/batches/**` (list + new + `[id]` detail + `[id]/edit`),
@@ -164,7 +184,17 @@ MCQ editor as the wizard).
   skip the review queue and land directly in the approved list); they can still be
   removed there. Same `{text, options[4], correctOptionKey, explanation?, difficulty?}`
   shape → same `POST /api/tests` contract; no schema/API change. The editor validates
-  non-empty question text + all four options before it can be saved.
+  non-empty question content + all four options before it can be saved.
+- **Question editor is tabbed text/image (D31).** The shared editor modal
+  (`components/admin/QuestionEditorModal.tsx`) lets the **question** be entered as
+  either **formatted text** (a lightweight `RichTextInput` — bold + bullet/numbered
+  list) **or** an **image** (drag/click/paste a horizontal question screenshot),
+  chosen via a Text ⇄ Image **tab**. The **explanation** has the same text-or-image
+  tabs. The four **options** stay plain text (tidier consistent rows: letter badge +
+  "correct" radio + highlight). Content is stored in the existing `text`/`explanation`
+  fields — an image as a `data:` URI, formatted text as a small HTML subset — so the
+  `POST /api/tests` contract is unchanged (D31). All render sites go through
+  `components/QuestionContent.tsx` (sanitized HTML / inline image / plain text).
 - Publish gated on `approved ≥ required`, with explicit confirm to publish fewer.
 - Correct answers shown to the teacher here only; never sent to students (F6).
 - `POST /api/tests` verifies the batch belongs to the teacher; rolls back the quiz
@@ -188,6 +218,8 @@ MCQ editor as the wizard).
 - [x] Re-generate repeatedly; approved accumulate across rounds.
 - [x] **Add a question + its 4 options manually** (correct one selected); it is
       auto-approved into the approved list. A test can be built entirely by hand.
+- [x] **Question & explanation each accept formatted text (bold/list) OR an image**
+      via a Text ⇄ Image tab; options stay plain text; students see it rendered (D31).
 - [x] Publish only when approved meets required (or admin confirms fewer).
 - [x] Published test tied to batch + schedule, status `published`.
 - [x] Correct answers not exposed to students (stored as key, filtered in F6).
@@ -202,8 +234,10 @@ MCQ editor as the wizard).
 `app/(protected)/admin/quizzes/[id]/page.tsx` (Edit/Delete actions),
 `app/api/tests/route.ts`, `app/api/tests/[id]/route.ts` (GET/PUT/DELETE),
 `supabase/migrations/20260917140000_quiz_archive.sql`,
-`components/providers/AntdProvider.tsx`, `utils/constants.ts`. Rationale in
-`DECISIONS.md D22`.
+`components/providers/AntdProvider.tsx`, `utils/constants.ts`. Shared question editor
++ renderer (D31): `components/admin/QuestionEditorModal.tsx`,
+`components/admin/RichTextInput.tsx`, `components/QuestionContent.tsx`,
+`utils/richText.ts`. Rationale in `DECISIONS.md D22`, `D31`.
 
 ---
 
@@ -229,26 +263,57 @@ API key server-side only.
 
 ## F5 — View all students  ✅
 
-**Goal:** One searchable place to see every student + status.
+**Goal:** One place to see every student + status, browsable **all-at-once** or
+**batch-by-batch**, with per-student account controls.
 
-**UI (antd):** `/admin/students` — `Table` (name, email/phone, batches, #tests
-taken, last activity) with text search (name/email/phone) + batch filter; row click
-→ `/admin/students/[id]` detail (profile, enrolled batches, roll-up stats, and a
-full test-history table with **on-time / late / missed** outcome + score).
+**UI (antd):** `/admin/students` — a header **Segmented** tab switch between two
+views (state kept in-component, not the URL — mirrors the D29 drill pattern):
+- **All students** — `Table`/card list (name, email/phone, batches, #tests taken,
+  last activity, **account status**) with text search (name/email/phone) + batch
+  filter. Each row carries an **account status** tag (Active/Inactive) and an
+  **actions** menu: **Activate / Deactivate** and **Delete** (`Popconfirm`). The
+  name/rest of the row still opens `/admin/students/[id]` detail.
+- **Batch-wise** — opens on the shared **`BatchPicker`** grid (D29): one premium
+  batch card per batch with its **student count**; tapping a batch drills (via
+  `useDrillStack` + `DrillHeader`) into that batch's student list — the same table +
+  actions, scoped to the batch. Back/breadcrumb climbs to the batch grid.
 
-**Rules:** teacher-only; email/phone come from `auth.users` via the **service role**
-(`utils/students.ts`), never exposed to a student session. History outcome is
-**derived server-side** (`deriveOutcome`, `utils/test.ts`) so missed/late flags are
-authoritative, and it covers non-attempted tests so `missed` surfaces.
+Row click → `/admin/students/[id]` detail (profile, enrolled batches, roll-up stats,
+a full test-history table with **on-time / late / missed** outcome + score, plus the
+same Activate/Deactivate + Delete account controls in the header).
+
+**Rules:** teacher-only; email/phone **and account status** come from `auth.users`
+via the **service role** (`utils/students.ts`), never exposed to a student session.
+- **Account status** is derived from `auth.users.banned_until` (active = not banned
+  or the ban has lapsed). **Deactivate** bans the auth user (`ban_duration` far in
+  the future) so they can't sign in; **Activate** clears the ban (`ban_duration:
+  "none"`). Both via `PATCH /api/students/[id]` (service role, teacher-only).
+- **Delete** (`DELETE /api/students/[id]`, teacher-only, service role) hard-deletes
+  the **auth user**; every child row (`profiles`, `student_batches`, `quiz_attempts`,
+  `homework_attempts`, push rows) cascades via `ON DELETE CASCADE`. This is an
+  intentional exception to soft-delete: removing an account is the admin's explicit
+  destructive choice and is gated behind a `Popconfirm`. Both routes 404 on a
+  non-student id (never touch a teacher account).
+- History outcome is **derived server-side** (`deriveOutcome`, `utils/test.ts`) so
+  missed/late flags are authoritative, and it covers non-attempted tests so `missed`
+  surfaces.
 
 **Acceptance:**
-- [x] Searchable/filterable student list.
-- [x] Student detail with test history + late/missed flags.
+- [x] Searchable/filterable student list (All-students view).
+- [x] Header tab switch between **All students** and **Batch-wise**.
+- [x] Batch-wise view lists batches with **student counts**; tapping one shows that
+      batch's students (same actions).
+- [x] **Activate / Deactivate** a student account (a deactivated student can't log in).
+- [x] **Delete** a student account (cascades its enrollments/attempts).
+- [x] Student detail with test history + late/missed flags + account controls.
 
-**Code:** `app/(protected)/admin/students/page.tsx` +
-`app/(protected)/admin/students/[id]/page.tsx`, `GET /api/students`,
-`GET /api/students/[id]`, `utils/students.ts` (contact lookup). Header links
-`/admin/students`. Rationale in `DECISIONS.md D13`.
+**Code:** `app/(protected)/admin/students/page.tsx` (tab switch + batch drill +
+row actions) + `app/(protected)/admin/students/[id]/page.tsx` (detail + controls),
+`GET /api/students` (roster + `active`), `GET`/`PATCH`/`DELETE /api/students/[id]`,
+`utils/students.ts` (contact + account-status lookup), reuses
+`components/admin/BatchPicker.tsx` · `DrillHeader.tsx` · `useDrillStack.ts` and
+`GET /api/batches` (batch list + student counts). Header links `/admin/students`.
+Rationale in `DECISIONS.md D13`.
 
 ---
 
@@ -670,8 +735,11 @@ resolver),
 **Goal:** A teacher assigns **homework** to a batch. Two kinds, chosen on one
 create screen via **two tabs**:
 - **MCQ** — a question set the teacher builds **manually and/or with AI** (same
-  photo → questions endpoint as Tests, `/api/generate`). Students **attempt &
-  submit** it once; graded server-side (no countdown timer — homework isn't timed).
+  photo → questions endpoint as Tests, `/api/generate`). Manual questions use the
+  **shared tabbed editor** (`components/admin/QuestionEditorModal.tsx`): question &
+  explanation each accept **formatted text (bold/list) or an image**, options stay
+  plain text (D31). Students **attempt & submit** it once; graded server-side (no
+  countdown timer — homework isn't timed).
 - **PDF / Image** — the teacher uploads **one or more** files. Students read them
   and simply **mark the homework done** (no upload back).
 

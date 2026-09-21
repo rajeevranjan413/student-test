@@ -80,7 +80,7 @@ policy. Full policy map in `DATA-MODEL.md → Row-Level Security`.
 | `/admin/quizzes`, `/admin/quizzes/new` | `(protected)` | teacher | done (antd) — **batch-first**: batch grid (test counts) → a batch's tests → detail; AI + manual wizard |
 | `/admin/quizzes/[id]` | `(protected)` | teacher | done (antd) — test detail hub: results / late-missed report + Edit / Delete (the only place tests are edited/deleted) |
 | `/admin/quizzes/[id]/edit` | `(protected)` | teacher | done (antd) — edit settings + questions (F3) |
-| `/admin/students`, `/admin/students/[id]` | `(protected)` | teacher | done (antd) — roster + student detail |
+| `/admin/students`, `/admin/students/[id]` | `(protected)` | teacher | done (antd) — **All-students / Batch-wise** tab switch (batch grid → a batch's students) + student detail; per-student activate/deactivate + delete |
 | `/student` | `(protected)` | student | done (antd) — **home** hub: banner slider + section cards (F12) |
 | `/student/tests` | `(protected)` | student | done (antd) — test list; `/student/tests/[id]` take/resume/result (F6) |
 | `/admin/homework`, `/admin/homework/new` | `(protected)` | teacher | done (antd) — **batch-first**: batch grid (homework counts) → a batch's homework cards → detail; two-tab create (MCQ manual/AI, PDF/image) (F14) |
@@ -105,8 +105,8 @@ policy. Full policy map in `DATA-MODEL.md → Row-Level Security`.
 | `/tests` | GET, POST | teacher | list teacher's live (non-archived) tests / create test + questions |
 | `/tests/[id]` | GET, PUT, DELETE | teacher | full test + questions (answers via service role) / update settings + questions / **delete or archive** |
 | `/tests/[id]/results` | GET | teacher | per-enrolled-student late/missed report + roll-up |
-| `/students` | GET | teacher | roster: profile + contact + batches + activity |
-| `/students/[id]` | GET | teacher | student detail: profile + batches + test history |
+| `/students` | GET | teacher | roster: profile + contact + batches + activity + account status |
+| `/students/[id]` | GET, PATCH, DELETE | teacher | student detail (profile + batches + history) / activate-deactivate account (ban) / delete account (cascades) |
 | `/student/batches` | GET | student | the student's enrolled batches (powers the header batch switcher) |
 | `/student/tests` | GET | student | dashboard: enrolled tests + phase + attempt state |
 | `/student/tests/[id]` | GET, PATCH | student | take-page bootstrap + answer autosave |
