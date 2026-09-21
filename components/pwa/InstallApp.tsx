@@ -38,12 +38,52 @@ function isStandalone(): boolean {
 
 export function PwaRegister() {
   React.useEffect(() => {
-    if ("serviceWorker" in navigator) {
-      // Register after load so it never competes with first paint.
+    const hasSW = "serviceWorker" in navigator;
+    let updateTimer: ReturnType<typeof setInterval> | undefined;
+    let refreshing = false;
+
+    // Silent auto-update: a newly deployed worker (see public/sw.js) skips waiting
+    // and claims control, which fires `controllerchange` here — we reload once so
+    // the page loads the new build's assets. We only arm this when a worker was
+    // ALREADY controlling the page; otherwise the very first install would trigger
+    // a pointless reload on a brand-new visitor.
+    const onControllerChange = () => {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    };
+    const armedForUpdates = hasSW && !!navigator.serviceWorker.controller;
+    if (armedForUpdates) {
+      navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
+    }
+
+    // Ask the browser to re-check for a new worker when the app regains focus, so
+    // updates land promptly on the next launch instead of waiting for a reload.
+    const onVisible = () => {
+      if (hasSW && document.visibilityState === "visible") {
+        navigator.serviceWorker
+          .getRegistration()
+          .then((reg) => reg?.update())
+          .catch(() => {});
+      }
+    };
+
+    if (hasSW) {
+      // Stamp the current build id onto the SW url so every deploy is a distinct
+      // worker the browser installs. Register after load so it never competes with
+      // first paint.
+      const swUrl = `/sw.js?v=${process.env.NEXT_PUBLIC_BUILD_ID ?? "dev"}`;
       const register = () =>
-        navigator.serviceWorker.register("/sw.js").catch(() => {});
+        navigator.serviceWorker
+          .register(swUrl)
+          .then((reg) => {
+            // Long-lived tabs still get updates: re-check hourly.
+            updateTimer = setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
+          })
+          .catch(() => {});
       if (document.readyState === "complete") register();
       else window.addEventListener("load", register, { once: true });
+      document.addEventListener("visibilitychange", onVisible);
     }
 
     const onBeforeInstall = (e: Event) => {
@@ -61,6 +101,10 @@ export function PwaRegister() {
     return () => {
       window.removeEventListener("beforeinstallprompt", onBeforeInstall);
       window.removeEventListener("appinstalled", onInstalled);
+      if (hasSW) document.removeEventListener("visibilitychange", onVisible);
+      if (armedForUpdates)
+        navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
+      if (updateTimer) clearInterval(updateTimer);
     };
   }, []);
 

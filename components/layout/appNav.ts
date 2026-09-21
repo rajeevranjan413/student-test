@@ -79,6 +79,7 @@ const DYNAMIC_TITLES: [RegExp, string][] = [
   [/^\/admin\/batches\/[^/]+\/edit$/, "Edit batch"],
   [/^\/admin\/batches\/[^/]+$/, "Batch"],
   [/^\/admin\/quizzes\/[^/]+$/, "Test"],
+  [/^\/admin\/homework\/[^/]+$/, "Homework"],
   [/^\/admin\/students\/[^/]+$/, "Student"],
   [/^\/student\/tests\/[^/]+$/, "Test"],
   [/^\/student\/homework\/[^/]+$/, "Homework"],
