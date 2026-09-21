@@ -15,7 +15,8 @@
 | Auth + DB | Supabase (Postgres) via `@supabase/ssr` (cookie sessions) |
 | Files | **Pluggable private storage** (`utils/storage.ts`): Supabase **Storage** (private buckets) by default, **Cloudinary** (private `authenticated` assets) once `STORAGE_PROVIDER=cloudinary` — for Study-Material notes (F13) and file-homework (F14). Both accessed server-side only, via short-lived / signed authorized URLs; each file row records its own provider so a switch is non-breaking (D27) |
 | AI | Google Gemini via `@google/generative-ai` (server-side only) |
-| PWA | `app/manifest.ts` (`/manifest.webmanifest`) + `public/sw.js` service worker → installable Android app (F11). SW never caches `/api/*`, `/auth`, or cross-origin, so data/sessions stay live. |
+| PWA | `app/manifest.ts` (`/manifest.webmanifest`) + `public/sw.js` service worker → installable Android app (F11). SW never caches `/api/*`, `/auth`, or cross-origin, so data/sessions stay live. It also carries the **Web Push** `push`/`notificationclick` handlers for student notifications (F15). |
+| Push | **Web Push (VAPID)** via `web-push` (server-only) → notifies students of new homework/tests/study material (F15). Public key `NEXT_PUBLIC_VAPID_PUBLIC_KEY`; private key + `VAPID_SUBJECT` server-only. A `CRON_SECRET`-guarded `/api/cron/notify` (Vercel Cron / pg_cron) fires the "test is live" reminder. No-ops cleanly when unconfigured. |
 
 ## 2. Layers & data flow
 
@@ -76,15 +77,16 @@ policy. Full policy map in `DATA-MODEL.md → Row-Level Security`.
 | `/admin/batches`, `/admin/batches/new` | `(protected)` | teacher | done (Tailwind) — list w/ counts |
 | `/admin/batches/[id]` | `(protected)` | teacher | done (antd) — detail: students + tests + enroll |
 | `/admin/batches/[id]/edit` | `(protected)` | teacher | done (antd) — edit form |
-| `/admin/quizzes`, `/admin/quizzes/new` | `(protected)` | teacher | done (antd) — AI + manual wizard |
-| `/admin/quizzes/[id]` | `(protected)` | teacher | done (antd) — test results / late-missed report |
+| `/admin/quizzes`, `/admin/quizzes/new` | `(protected)` | teacher | done (antd) — **batch-first**: batch grid (test counts) → a batch's tests → detail; AI + manual wizard |
+| `/admin/quizzes/[id]` | `(protected)` | teacher | done (antd) — test detail hub: results / late-missed report + Edit / Delete (the only place tests are edited/deleted) |
 | `/admin/quizzes/[id]/edit` | `(protected)` | teacher | done (antd) — edit settings + questions (F3) |
 | `/admin/students`, `/admin/students/[id]` | `(protected)` | teacher | done (antd) — roster + student detail |
 | `/student` | `(protected)` | student | done (antd) — **home** hub: banner slider + section cards (F12) |
 | `/student/tests` | `(protected)` | student | done (antd) — test list; `/student/tests/[id]` take/resume/result (F6) |
-| `/admin/homework`, `/admin/homework/new` | `(protected)` | teacher | done (antd) — list + two-tab create (MCQ manual/AI, PDF/image) (F14) |
+| `/admin/homework`, `/admin/homework/new` | `(protected)` | teacher | done (antd) — **batch-first**: batch grid (homework counts) → a batch's homework cards → detail; two-tab create (MCQ manual/AI, PDF/image) (F14) |
+| `/admin/homework/[id]` | `(protected)` | teacher | done (antd) — homework detail hub: full info + MCQ questions or files, with View / Download / Delete (the only place homework is deleted) |
 | `/student/homework`, `/student/homework/[id]` | `(protected)` | student | done (antd) — list + MCQ attempt/submit or file view/mark-done (F14) |
-| `/admin/study-material` | `(protected)` | teacher | done (antd) — manage subjects per batch + file PDF/image notes under a subject (F13) |
+| `/admin/study-material` | `(protected)` | teacher | done (antd) — **batch-first drill**: batch grid (subject counts) → a batch's subjects (folders) → a subject's notes, where Add-notes / View / Download / Delete live (F13) |
 | `/student/study-material` | `(protected)` | student | done (antd) — subject folder grid; `/student/study-material/[subjectId]` lists a subject's notes (F13) |
 | `/teacher` | `(protected)` | teacher | retired mock → redirects to `/admin` |
 | `/home` | — | teacher | legacy AI builder (superseded by wizard) |
@@ -124,8 +126,11 @@ policy. Full policy map in `DATA-MODEL.md → Row-Level Security`.
 | `/study-materials/[id]/download` | GET | teacher **or** enrolled student | authorize, then return a short-lived signed URL (`?mode=view\|download`) |
 | `/student/subjects` | GET | student | subject folders + note counts for the student's enrolled batches (opt. `?batch=`) |
 | `/student/study-materials` | GET | student | notes in a subject (`?subject=`) after re-checking enrollment; opt. `?batch=` |
+| `/push/subscribe` | POST, DELETE | any user | register / remove this device's Web Push subscription (F15; `user_id` from the session, never the client) |
+| `/cron/notify` | GET | `CRON_SECRET` | scheduler hook: push a "test is live" reminder for tests whose `scheduled_at` just passed (F15) |
 
-**Planned (see `FEATURES.md`):** — (all F1–F13 shipped; seed data + live verification remain).
+**Planned (see `FEATURES.md`):** — F1–F14 shipped; F15 (student push notifications) in
+progress; seed data + live verification remain.
 
 ## 5. AI generation contract (`/api/generate`)
 
@@ -180,4 +185,13 @@ middleware.ts            route gating by role
 supabase/migrations/*    schema (source of truth for DB)
 docs/DATA-MODEL.md       full schema reference
 docs/FEATURES.md         per-feature spec + status
+public/org/*             raw Neeraj Competitive Classes photos/video (source assets)
+public/home/*            curated, web-named copies used by `/` landing + student home (F12)
 ```
+
+**Branding:** the app is skinned for **Neeraj Competitive Classes** (run by Neeraj
+Sir, Faculty of Patna — motto "No game · No fame · Only aim"; prep for Railway,
+SSC, Bank, BSSC, Bihar Police/Daroga & Defence). The public landing (`/`) and the
+student home (F12) render real center photos from `public/home/` (each with a
+gradient fallback). Center name/contact live as top-of-file constants in
+`app/(protected)/page.tsx` — edit there to re-point.

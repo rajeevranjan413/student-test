@@ -154,12 +154,29 @@ objects first so no bytes are orphaned.
 | `kind` | text | default `notes`. The material **type**; `notes` (a PDF/image) is the only kind today. Kept free text (not an enum) so future kinds — videos, links, assignments — are additive with no migration. |
 | `title` | text | not null; shown to students |
 | `description` | text | optional blurb |
-| `storage_provider` | text | not null, default `supabase`; which backend holds the bytes (`supabase` \| `cloudinary`). Set from `STORAGE_PROVIDER` at upload time; every row is self-describing so a provider switch never breaks existing files (D27). |
-| `file_path` | text | not null; **provider-relative** file reference. For `supabase`: the object path inside the private `study-material` bucket (e.g. `<batch_id>/<subject_id>/<uuid>.<ext>`). For `cloudinary`: the private (`authenticated`, `raw`) asset's `public_id` (e.g. `study-material/<batch_id>/<subject_id>/<uuid>.<ext>`). Never a public URL. |
-| `file_name` | text | not null; the original upload filename, used as the download filename |
+| `storage_provider` | text | **legacy** (D28): before multi-file, held this note's single-file provider. Kept for backfilled/old rows; new notes store per-file in `study_material_files`. Default `supabase` (D27). |
+| `file_path` | text | **legacy / nullable** (D28): the single inline file's provider-relative path. NOT NULL was relaxed; new multi-file notes leave it `NULL` and keep their files in `study_material_files`. |
+| `file_name` | text | **legacy / nullable** (D28): the single inline file's original filename |
+| `file_size` | bigint | **legacy**: the single inline file's size |
+| `mime_type` | text | **legacy**: the single inline file's mime |
+| `archived_at` | timestamptz | reserved for a future soft-delete; `NULL` = live. Today the API **hard-deletes** a material (a file carries no results/history), but the column + student policy guard exist so soft-delete can be added without a migration |
+| `created_at` | timestamptz | |
+
+> **Multiple files (D28):** a note now owns **many** files via the child table
+> `study_material_files` (below). New uploads write only child rows; the inline
+> `file_*` columns above are legacy and were backfilled into the child table.
+
+### study_material_files (files attached to a note — D28)
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | passed to the download route as `?file=` |
+| `material_id` | uuid | → study_materials on delete cascade |
+| `storage_provider` | text | not null, default `supabase` (CHECK `supabase`\|`cloudinary`); which backend holds this file's bytes (D27) |
+| `file_path` | text | not null; **provider-relative** reference. `supabase`: object path in the private `study-material` bucket (`<batch_id>/<subject_id>/<uuid>.<ext>`). `cloudinary`: the private (`authenticated`,`raw`) asset `public_id`. Never a public URL. |
+| `file_name` | text | not null; original filename, used as the download filename |
 | `file_size` | bigint | bytes (for display) |
 | `mime_type` | text | `application/pdf` or an `image/*` type |
-| `archived_at` | timestamptz | reserved for a future soft-delete; `NULL` = live. Today the API **hard-deletes** a material (a file carries no results/history), but the column + student policy guard exist so soft-delete can be added without a migration |
+| `order` | int | not null default 0; display order within the note |
 | `created_at` | timestamptz | |
 
 > **File hosting (pluggable — D27):** the note bytes (PDF or image) live in a
@@ -187,19 +204,36 @@ objects first so no bytes are orphaned.
 | `total_questions` | int | MCQ target set at creation (NULL for `file`) |
 | `marks_per_question` | int | default 1 (MCQ scoring) |
 | `negative_marking` | numeric | default 0 (MCQ scoring) |
-| `file_path` | text | `file` only — object path inside the private `homework` bucket (`<batch_id>/<uuid>.<ext>`); never a public URL |
-| `file_name` | text | `file` only — original filename (used on download) |
-| `file_size` | bigint | `file` only — bytes |
-| `mime_type` | text | `file` only — `application/pdf` or an `image/*` type |
-| `storage_provider` | text | `file` only — which backend holds the bytes (`supabase` \| `cloudinary`); added by `20260918160000_storage_provider.sql`, default `supabase` (D27) |
+| `file_path` | text | **legacy / nullable** (D28) — the single inline file's path; new `file` homework keeps its files in `homework_files` |
+| `file_name` | text | **legacy** (D28) — the single inline file's original filename |
+| `file_size` | bigint | **legacy** (D28) — the single inline file's bytes |
+| `mime_type` | text | **legacy** (D28) — the single inline file's mime |
+| `storage_provider` | text | **legacy** (D28) — the single inline file's provider; per-file provider now lives on `homework_files`. Default `supabase` (D27) |
 | `status` | text | `draft` \| `published` (CHECK), default `draft` |
 | `is_published` | bool | mirrored from `status` |
 | `archived_at` | timestamptz | soft-delete once it has attempts (hidden from students via RLS + the teacher list); `NULL` = live |
 | `created_at` | timestamptz | |
 
 > **Deleting homework:** with **no** attempts it is hard-deleted (`homework_questions`
-> cascade; the file object is removed first). With attempts it is **soft-deleted**
-> (`archived_at`) so completion/score history survives — mirrors the test rule (D22).
+> + `homework_files` cascade; every file object is removed first). With attempts it is
+> **soft-deleted** (`archived_at`) so completion/score history survives (D22).
+
+> **Multiple files (D28):** a `file` homework owns **many** files via `homework_files`
+> (below). New uploads write only child rows; the inline `file_*` columns are legacy
+> and were backfilled into the child table.
+
+### homework_files (files attached to a `file` homework — D28)
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | passed to the download route as `?file=` |
+| `homework_id` | uuid | → homework on delete cascade |
+| `storage_provider` | text | not null, default `supabase` (CHECK `supabase`\|`cloudinary`) (D27) |
+| `file_path` | text | not null; provider-relative reference (object path in the private `homework` bucket, or the Cloudinary `public_id`); never a public URL |
+| `file_name` | text | not null; original filename, used on download |
+| `file_size` | bigint | bytes (for display) |
+| `mime_type` | text | `application/pdf` or an `image/*` type |
+| `order` | int | not null default 0; display order |
+| `created_at` | timestamptz | |
 
 ### homework_questions (MCQ body; mirrors `questions`)
 | Column | Type | Notes |
@@ -235,6 +269,40 @@ objects first so no bytes are orphaned.
 Added by `20260918140000_homework.sql` (three tables + RLS + private `homework`
 bucket). Like `quiz_attempts`, `homework_attempts` has **no** browser write policy —
 all writes go through the service role, so scores/completions can't be forged.
+
+### push_subscriptions (F15 — one row per device push endpoint)
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `user_id` | uuid | → profiles on delete cascade; owner of this device subscription |
+| `endpoint` | text | **unique**; the push service URL for this device/browser (the subscription's identity) |
+| `p256dh` | text | the subscription's public key (Web Push encryption) |
+| `auth` | text | the subscription's auth secret (Web Push encryption) |
+| `user_agent` | text | optional; the browser UA at subscribe time (debugging) |
+| `created_at` | timestamptz | |
+| `last_seen_at` | timestamptz | refreshed on re-subscribe |
+
+Written **server-side via the service role** after `requireUser` (the `user_id` is
+always the authed user, never client-supplied). A send that gets `404`/`410` from the
+push service **prunes** the row (the endpoint is gone). No client write policy — RLS
+lets a user SELECT only their own rows (defense-in-depth). The **VAPID private key**
+that signs pushes lives only in env, never in the DB.
+
+### notification_events (F15 — dedupe / audit log)
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `type` | text | event kind: `homework` \| `study_material` \| `test_published` \| `test_live` |
+| `ref_id` | uuid | the subject row (homework/material/quiz id) |
+| `user_id` | uuid | → profiles on delete cascade; the student the event was for |
+| `created_at` | timestamptz | |
+| **unique** | (`type`,`ref_id`,`user_id`) | **one notification per student per event** |
+
+Every fan-out **claims** its `(type, ref_id, user_id)` rows first
+(`upsert … ignoreDuplicates`); only the rows that were newly inserted are actually
+pushed. This makes the periodic **test-live cron** idempotent (a student is reminded
+once, however often the cron runs) and makes a re-publish a no-op. Writes are
+service-role only.
 
 ## Attempt timing model (canonical)
 
@@ -280,7 +348,9 @@ raw browser query can no longer bypass them.
 | `quiz_attempts` | student/teacher SELECT (own / all). **No client writes** — inserts & updates go through the service role. |
 | `subjects` | teacher: full CRUD; student: SELECT non-archived rows in enrolled batches only. |
 | `study_materials` | teacher: full CRUD. student: SELECT non-archived rows in enrolled batches only. The **file bytes** are in a private storage bucket reached only via server-minted signed URLs (service role), so RLS on this table protects the *metadata* and the download route re-checks enrollment before signing. |
+| `study_material_files` (D28) | teacher: full CRUD; student: SELECT files whose parent note is enrolled + non-archived. Bytes stay private; download route re-authorizes per request. |
 | `homework` | teacher: full CRUD; student: SELECT published, **non-archived** rows in enrolled batches only. |
+| `homework_files` (D28) | teacher: full CRUD; student: SELECT files whose parent homework is enrolled + published + non-archived. Bytes stay private; download route re-authorizes per request. |
 | `homework_questions` | teacher: full CRUD; student: SELECT body of a takeable homework's questions. **`correct_answer`/`explanation` column-REVOKEd from everyone but service role.** |
 | `homework_attempts` | student/teacher SELECT (own / all). **No client writes** — inserts (graded MCQ submit, file mark-done) go through the service role. |
 

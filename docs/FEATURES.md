@@ -23,6 +23,7 @@ Feature index:
 | F12 | Student home page (banner + sections) | ✅ |
 | F13 | Study Material (subject folders → notes: PDF/image) | ✅ |
 | F14 | Homework (batch-wise: MCQ attempt + PDF/image mark-done) | ✅ |
+| F15 | Student push notifications (homework · tests · study material) | 🟡 |
 
 ---
 
@@ -147,11 +148,15 @@ Rationale in `DECISIONS.md D14`.
    `Approved X/Y` progress; "Generate more" appends candidates, keeps approved;
    **Add question manually** here too (goes straight to the approved list).
 4. **Publish** — summary → **Publish** or **Save as draft**.
-`/admin/quizzes` lists tests (antd `Table`) with per-row **View results / Edit /
-Delete** actions. `/admin/quizzes/[id]/edit` (antd) edits an existing test:
-settings (title, batch, schedule, duration, marks scheme, passing marks,
-**status** = draft/published/closed) plus its questions (same MCQ editor as the
-wizard). The results detail page also carries **Edit** and **Delete**.
+`/admin/quizzes` is **batch-first** (D29): it first shows a premium grid of **batch
+cards** (name, timing, live **test count**); tapping a batch drills into that batch's
+tests as cards (title, status, schedule, questions) with a breadcrumb/back to the
+batch grid. A test card opens **`/admin/quizzes/[id]`** — the test **detail hub**
+(results / late-missed report) which is the **only** place a test is **edited or
+deleted** (the lists carry no destructive/edit actions). `/admin/quizzes/[id]/edit`
+(antd) edits an existing test: settings (title, batch, schedule, duration, marks
+scheme, passing marks, **status** = draft/published/closed) plus its questions (same
+MCQ editor as the wizard).
 
 **Rules:**
 - Only **approved** questions are persisted.
@@ -353,9 +358,12 @@ and `GET /api/public/batches` for the filter. Rationale in `DECISIONS.md D15`.
 **Goal:** Replace the `/admin` stub (and the mock `/teacher` page) with real
 overview: batch/student/test counts + recent items, wired to live APIs (antd).
 
-**UI (antd):** `/admin` — three `Statistic` cards (batches, students, published
-tests / total) + two "recent" lists (latest batches → detail, latest tests →
-results). Quick actions to create a batch/test. All data from live APIs; no mock.
+**UI (antd):** `/admin` — three gradient stat cards (batches, students, published
+tests / total) + two "recent" panels (latest batches → detail, latest tests →
+results). The recent panels render **premium custom rows** (gradient icon tile,
+title + meta line, hover lift + chevron; tests use a tinted status pill toned by
+status, batches show student/test counts) instead of the default antd `List`.
+Quick actions to create a batch/test. All data from live APIs; no mock.
 
 **Rules:** teacher-only (already gated by `middleware.ts` + the APIs' `requireTeacher`).
 Reuses existing endpoints — no new API. The mock `/teacher` page is **retired**
@@ -425,6 +433,18 @@ standalone display mode) the button becomes an "App installed" confirmation.
   installability + a small app-shell cache. It **never** caches `/api/*`, `/auth`,
   or cross-origin traffic, so Supabase data and sessions are always live — this
   keeps F10 (answer secrecy / RLS) intact; nothing security-critical is cached.
+- **Auto-update (no reinstall):** the SW is registered with a per-deploy version
+  query — `/sw.js?v=<NEXT_PUBLIC_BUILD_ID>` — and names its cache `ncc-shell-<v>`.
+  Each deploy is therefore a *new* worker the browser installs; its `activate`
+  step deletes stale caches, and `skipWaiting()` + `clients.claim()` make it take
+  control immediately. `PwaRegister` listens for `controllerchange` and silently
+  reloads once when the new worker takes over (armed only when a worker was
+  already controlling, so the first-ever install never triggers a needless
+  reload), and re-checks for updates on tab focus + hourly. `next.config.ts`
+  computes `buildId`, inlines it as `NEXT_PUBLIC_BUILD_ID` (via `env`), and serves
+  `/sw.js` with `Cache-Control: no-cache` so the worker is never held stale for
+  the browser's 24h cap. Static assets use stale-while-revalidate. Result: users
+  get updates on next launch **without uninstalling/reinstalling** the PWA.
 - No native/APK toolchain: install is via the browser's PWA flow. A native
   wrapper (TWA via Bubblewrap, or Capacitor) is a future option and would reuse
   this same manifest + hosted HTTPS origin.
@@ -453,6 +473,8 @@ root layout (persists across navigations, no flash):
 - [x] Home page shows an install control that fires the native prompt when
       available and instructions otherwise; standalone shows "App installed".
 - [x] No API/auth responses are cached by the service worker.
+- [x] A redeploy reaches installed PWAs on next launch (new SW installs, old cache
+      cleared, page silently reloads) with **no uninstall/reinstall** required.
 - [x] Bottom nav + top app bar render on admin/student/leaderboard; back arrow on
       sub-screens; nav hidden on `/`, auth pages, and during a test attempt.
 - [x] `tsc --noEmit`, lint, and `next build` pass.
@@ -462,7 +484,8 @@ root layout (persists across navigations, no flash):
 `InstallAppButton`), `components/layout/appNav.ts` (nav config/titles),
 `components/layout/AppShell.tsx` (`AppBar` / `BottomNav` / `RouteTransition`),
 app-shell CSS in `app/globals.css`; wired in `app/layout.tsx`,
-`app/(protected)/layout.tsx`, and `app/(protected)/page.tsx`.
+`app/(protected)/layout.tsx`, and `app/(protected)/page.tsx`. Auto-update wiring:
+`next.config.ts` (`buildId` → `NEXT_PUBLIC_BUILD_ID` + `/sw.js` no-cache header).
 
 **Verify:** `curl` the dev server for `/manifest.webmanifest` and `/sw.js` (200);
 in Chrome DevTools → Application → Manifest shows "installable", and mobile Chrome
@@ -495,9 +518,11 @@ Material later).
 
 **UI (antd):** `/student` is now the **Home** page.
 - **Banner slider** — an antd `<Carousel autoplay>` at the top with **6 banner
-  images**. Images are **placeholder URLs** (`picsum.photos` seeds) the maintainer
-  will swap for real creatives; the slide list is a single `BANNERS` array so
-  replacing them is a one-line-each edit.
+  images**. Images are **real Neeraj Competitive Classes photos** bundled under
+  `public/home/*` (felicitations, toppers, classroom, campus). A short greeting
+  ("Welcome back") sits above the slider. The slide list is a single `BANNERS`
+  array of local `/home/*.jpg` paths so swapping a creative is a one-line edit;
+  local (not remote) so the PWA can serve them offline.
 - **Section cards** — a responsive grid of cards:
   - **Tests** — active, routes to `/student/tests` (the test list, moved here).
   - **Homework** — placeholder, marked *Coming soon* and disabled (feature later).
@@ -508,11 +533,12 @@ Material later).
 **Rules:**
 - Home is presentational only — **no new API, no schema, no server logic.** All
   security-critical behaviour stays in F6's endpoints.
-- Placeholder banners must be trivially replaceable and clearly external (remote
-  URLs), never bundled assets. "Coming soon" cards are inert (no dead navigation).
+- Banners must be trivially replaceable (single `BANNERS` array). "Coming soon"
+  cards are inert (no dead navigation).
 
 **Acceptance:**
-- [x] Signing in as a student lands on `/student` showing a 6-image banner slider.
+- [x] Signing in as a student lands on `/student` showing a 6-image banner slider
+      of real Neeraj Competitive Classes photos (bundled under `public/home/`).
 - [x] Banner auto-advances and is swipeable/navigable (antd Carousel).
 - [x] Tests card opens the existing test list (now at `/student/tests`); its
       batch-switcher filtering still works.
@@ -529,23 +555,28 @@ Material later).
 ## F13 — Study Material (subject folders → notes: PDF/image)  ✅
 
 **Goal:** A teacher organizes study material by **subject within a batch**, then
-files **notes** (a PDF **or** an image, with title + description) under a subject.
-Every student in the batch sees the batch's subjects as **folders** and opens a
-folder to read/download all of that subject's notes. `kind` stays free text
+files **notes** (title + description with **one or more** PDFs/images) under a
+subject. Every student in the batch sees the batch's subjects as **folders** and
+opens a folder to read/download all of that subject's notes. `kind` stays free text
 (`notes`) so future material kinds slot in without a migration.
 
 **Model (see `DATA-MODEL.md`):** a `subjects` row (name) hangs off a `batch`; a
-`study_materials` row now hangs off a `subject` (`subject_id`) and keeps its
-denormalized `batch_id` (= the subject's batch) so the existing enrollment-based
-RLS/authorization is unchanged. A note's file may be a PDF or a common image type.
+`study_materials` row (the note: title/description) hangs off a `subject`
+(`subject_id`) and keeps its denormalized `batch_id` (= the subject's batch) so the
+existing enrollment-based RLS/authorization is unchanged. A note owns **many files**
+in the child table `study_material_files` (each a PDF or common image type, D28); the
+parent's legacy inline file columns are kept but nullable.
 
 **UI (antd):**
-- **Admin `/admin/study-material`** — pick a batch (`Select`); its **subjects**
-  render as folder cards. **Add subject** (name) creates one under the selected
-  batch. Each subject card lists its notes (title, type, size) with **View /
-  Download / Delete** and an **Add notes** action opening a modal (Title, optional
-  Description, **PDF or image** file via antd `Upload` held client-side until
-  submit). **Delete subject** (`Popconfirm`) cascades its notes + files.
+- **Admin `/admin/study-material`** — **batch-first drill** (D29): first a premium
+  grid of **batch cards** (name, timing, live **subject count**). Tapping a batch
+  drills into that batch's **subjects** as folder cards (name + note count) with an
+  **Add subject** action; tapping a subject drills into that **subject's notes** — the
+  detail level where every action lives: **Add notes** (modal: Title, optional
+  Description, **PDF or image** via antd `Upload` held client-side until submit),
+  per-note **View / Download / Delete**, and **Delete subject** (`Popconfirm`, cascades
+  its notes + files). Breadcrumb/back climbs subjects → batch grid. The batch and
+  subject grids carry no destructive actions.
 - **Student `/student/study-material`** — a **folder grid of subjects** for the
   student's enrolled batches (subject name, batch tag, note count). Respects the
   header batch switcher (filters to the active batch when one is selected). Tapping
@@ -562,15 +593,18 @@ RLS/authorization is unchanged. A note's file may be a PDF or a common image typ
   **hard-deletes** the subject; its `study_materials` cascade (FK) and their storage
   objects are removed best-effort first (no orphaned bytes).
 - **Teacher-only note writes.** `POST /api/study-materials` (`requireTeacher`,
-  multipart) takes a **`subjectId`**, validates the file is a PDF or image
-  (`application/pdf` / `image/*`, ≤ 25 MB), verifies the subject → batch belongs to
-  the teacher, uploads the bytes to the **active private storage provider** via the
-  shared `utils/storage.ts` layer (Supabase Storage by default; **Cloudinary** once
-  `STORAGE_PROVIDER=cloudinary`, e.g. after the Supabase free tier fills — D27), and
-  records the chosen `storage_provider` + provider-relative `file_path` on the row
-  (`subject_id` + denormalized `batch_id`). If the insert fails the object is removed
-  (no orphan). `DELETE /api/study-materials/[id]` hard-deletes (ownership-checked):
-  it removes the object **from whichever provider holds it** (per row), then the row.
+  multipart) takes a **`subjectId`** and **one or more** `file` parts, validates each
+  is a PDF or image (`application/pdf` / `image/*`, ≤ **100 MB** each, ≤ 20 files),
+  verifies the subject → batch belongs to the teacher, inserts the note parent, then
+  uploads each file's bytes to the **active private storage provider** via the shared
+  `utils/storage.ts` layer (Supabase Storage by default; **Cloudinary** once
+  `STORAGE_PROVIDER=cloudinary`, e.g. after the Supabase free tier fills — D27) and
+  records a `study_material_files` child row (its own `storage_provider` +
+  provider-relative `file_path`, `order`). If any upload/insert fails, the uploaded
+  objects **and** the parent note are rolled back (no orphan). `DELETE
+  /api/study-materials/[id]` hard-deletes (ownership-checked): it removes every file
+  object **from whichever provider holds it** (per row) then the note (child rows
+  cascade).
 - **Students read only their batches.** `GET /api/student/subjects` (`requireStudent`)
   lists non-archived subjects (with note counts) in the student's enrolled batches
   (opt. `?batch=`). `GET /api/student/study-materials?subject=` lists a subject's
@@ -578,24 +612,27 @@ RLS/authorization is unchanged. A note's file may be a PDF or a common image typ
   `subjects` and `study_materials` mirrors this (teacher CRUD; student SELECT
   enrolled + non-archived).
 - **File access is authorized every time.** The shared
-  `GET /api/study-materials/[id]/download` (`requireUser`) authorizes the caller
-  (owning teacher, or a student enrolled in the material's `batch_id`; else 403/404)
-  and only then mints a short-lived / signed URL **for the file's own provider**
-  (`utils/storage.ts#signedUrl`) — `?mode=download` (attachment, original filename)
-  or `?mode=view` (inline). Enrollment is re-checked each time. (Supabase → a ~60 s
+  `GET /api/study-materials/[id]/download?file=<fileId>` (`requireUser`) authorizes
+  the caller (owning teacher, or a student enrolled in the material's `batch_id`; else
+  403/404), resolves the requested file (verified to belong to the note; defaults to
+  the note's first file) and only then mints a short-lived / signed URL **for the
+  file's own provider** (`utils/storage.ts#signedUrl`) — `?mode=download` (attachment,
+  original filename) or `?mode=view` (inline). Enrollment is re-checked each time. (Supabase → a ~60 s
   signed URL; Cloudinary → an expiring `private_download_url` for download and a
   signed `authenticated` delivery URL for inline view — D27.)
-- **Additive & idempotent:** new `subjects` table + a **nullable** `subject_id` on
-  `study_materials`; no existing column renamed/dropped, reuses the D24 bucket.
+- **Additive & idempotent:** new `subjects` + `study_material_files` tables; a
+  **nullable** `subject_id` on `study_materials` + relaxed NOT NULL on its legacy file
+  columns; no existing column renamed/dropped, reuses the D24 bucket. Existing
+  single-file notes are backfilled into `study_material_files` (D28).
 
 **Acceptance:**
 - [x] Teacher adds a subject to a batch; it appears as a folder in the admin list.
-- [x] Teacher files a note (PDF **or** image, title + description) under a subject;
-      it appears in that subject's folder.
-- [x] Non-PDF/-image or oversized upload is rejected server-side; a cross-teacher
-      batch/subject is refused.
+- [x] Teacher files a note (title + description with **one or more** PDFs/images)
+      under a subject; every file appears under that note in the subject's folder.
+- [x] Non-PDF/-image or oversized (> 100 MB) upload is rejected server-side; a
+      cross-teacher batch/subject is refused.
 - [x] A student enrolled in the batch sees the subject folders and, opening one,
-      can **view** and **download** its notes; the filename is preserved on download.
+      can **view** and **download** each of a note's files; filenames are preserved.
 - [x] A student **not** enrolled in the batch cannot list the subject or its notes,
       nor download them (RLS + subject/enrollment re-check).
 - [x] Deleting a note removes its row + file; deleting a subject cascades its notes
@@ -606,7 +643,10 @@ RLS/authorization is unchanged. A note's file may be a PDF or a common image typ
 
 **Code:** `supabase/migrations/20260917160000_study_materials.sql` (bucket + notes
 table, D24) + `supabase/migrations/20260918120000_study_material_subjects.sql`
-(subjects table + RLS + `study_materials.subject_id`),
+(subjects table + RLS + `study_materials.subject_id`) +
+`supabase/migrations/20260921160000_multi_file_uploads.sql` (child file tables +
+RLS + backfill, D28), `utils/files.ts` (child-file loaders + per-file download
+resolver),
 `app/api/subjects/route.ts` (GET/POST), `app/api/subjects/[id]/route.ts` (DELETE),
 `app/api/student/subjects/route.ts` (GET),
 `app/api/study-materials/route.ts` (GET/POST — subject-scoped),
@@ -632,26 +672,33 @@ create screen via **two tabs**:
 - **MCQ** — a question set the teacher builds **manually and/or with AI** (same
   photo → questions endpoint as Tests, `/api/generate`). Students **attempt &
   submit** it once; graded server-side (no countdown timer — homework isn't timed).
-- **PDF / Image** — the teacher uploads one file. Students read it and simply
-  **mark it done** (no upload back).
+- **PDF / Image** — the teacher uploads **one or more** files. Students read them
+  and simply **mark the homework done** (no upload back).
 
 **Model (see `DATA-MODEL.md`):** a `homework` row (`type` = `mcq` | `file`) hangs
 off a `batch`. MCQ questions live in `homework_questions` (mirrors `questions`,
 answer columns column-REVOKEd). One `homework_attempts` row per student per
 homework (UNIQUE) records either a graded MCQ `submitted` attempt or a `done`
-completion. `file` bytes live in a **private** `homework` store, reached only via
-server-minted signed URLs through the shared `utils/storage.ts` layer — Supabase
-Storage by default, **Cloudinary** once `STORAGE_PROVIDER=cloudinary` (each row
-stamps its `storage_provider`, so upload/download/delete route per-file; D27).
+completion. A `file` homework owns **many files** in the child table
+`homework_files` (D28); their bytes live in a **private** `homework` store, reached
+only via server-minted signed URLs through the shared `utils/storage.ts` layer —
+Supabase Storage by default, **Cloudinary** once `STORAGE_PROVIDER=cloudinary` (each
+file row stamps its `storage_provider`, so upload/download/delete route per-file; D27).
 
 **UI (antd):**
-- **Admin `/admin/homework`** — list of homework (cards: title, batch, type,
-  published/draft, question-count or file) with **Create homework** + per-row
-  View/Download (file) + Delete. **`/admin/homework/new`** is the create screen:
+- **Admin `/admin/homework`** — **batch-first** (D29): first a premium grid of
+  **batch cards** (name, timing, live **homework count**); tapping a batch drills into
+  that batch's homework as cards (title, type, published/draft, question-count or
+  file count) with a breadcrumb/back to the batch grid. A homework card opens the
+  **new** homework **detail hub** **`/admin/homework/[id]`** (full info + MCQ
+  questions or attached files) — the **only** place a homework is **viewed/downloaded
+  or deleted** (the lists carry no destructive actions). **Create homework** launches
+  **`/admin/homework/new`** (batch prefilled when created from inside a batch).
+  **`/admin/homework/new`** is the create screen:
   shared header (title, batch, optional due date, description, publish/draft) then
   **Tabs**: *MCQ questions* (photo → **Generate** with the AI endpoint, plus **Add
   manually**; each question editable/removable; optional marks scheme + target) and
-  *PDF / Image* (single-file `Upload`, held client-side until submit). Submit posts
+  *PDF / Image* (**multi-file** `Upload`, held client-side until submit). Submit posts
   to `POST /api/homework` (JSON for MCQ, multipart for file).
 - **Student `/student/homework`** — homework for the student's enrolled batches
   (respects the header batch switcher), each tagged **To do** / **Done** (+ score
@@ -662,14 +709,17 @@ stamps its `storage_provider`, so upload/download/delete route per-file; D27).
 **Rules (server-enforced):**
 - **Teacher-only writes.** `POST /api/homework` (`requireTeacher`) verifies the
   target batch belongs to the teacher. MCQ: inserts the homework + its questions
-  (rolls back the homework if the question insert fails). File: validates PDF/image
-  (`application/pdf` / `image/*`, ≤ 25 MB), uploads to the private `homework` bucket
-  via the **service role** (path `<batch_id>/<uuid>.<ext>`), then inserts the row
-  (removes the object if the insert fails). `GET /api/homework?batch=` lists the
-  teacher's homework with question counts. `GET /api/homework/[id]` returns the full
-  homework (MCQ answers via the **service role**, column-revoked). `DELETE
-  /api/homework/[id]` hard-deletes when unattempted (questions cascade, file object
-  removed) else **archives** (`archived_at`) so completion/score history survives.
+  (rolls back the homework if the question insert fails). File: accepts **one or more**
+  `file` parts, validates each is a PDF/image (`application/pdf` / `image/*`, ≤ **100
+  MB** each, ≤ 20 files), inserts the homework parent, uploads each to the private
+  `homework` store (path `<batch_id>/<uuid>.<ext>`), then inserts a `homework_files`
+  child row per file (rolls back all objects **and** the parent on failure). `GET
+  /api/homework?batch=` lists the teacher's homework with question counts + attached
+  files. `GET /api/homework/[id]` returns the full homework (MCQ answers via the
+  **service role**, column-revoked; file rows for `file` homework). `DELETE
+  /api/homework/[id]` hard-deletes when unattempted (questions + file rows cascade,
+  file objects removed) else **archives** (`archived_at`) so completion/score history
+  survives.
 - **Answer secrecy (mirrors F10).** `homework_questions.correct_answer`/`explanation`
   are column-REVOKEd from the browser JWT; students read only the question **body**.
   Scoring reads answers via the **service role** and `homework_attempts` has **no**
@@ -680,10 +730,12 @@ stamps its `storage_provider`, so upload/download/delete route per-file; D27).
   attempt. `GET /api/student/homework/[id]` returns the body (no answers) + attempt +
   a graded review once submitted. `POST …/[id]/submit` grades an MCQ attempt (single
   attempt: UNIQUE + a pre-check → 409). `POST …/[id]/complete` marks a file homework
-  done (idempotent). `GET /api/homework/[id]/download?mode=view|download` (shared,
-  `requireUser`) authorizes teacher-owns / student-enrolled, then mints a ~60 s
-  signed URL. RLS mirrors all of this.
-- **Additive & idempotent:** three new tables + a new bucket; no existing column
+  done (idempotent). `GET /api/homework/[id]/download?file=<fileId>&mode=view|download`
+  (shared, `requireUser`) authorizes teacher-owns / student-enrolled, resolves the
+  requested file (defaults to the first), then mints a ~60 s signed URL. RLS mirrors
+  all of this.
+- **Additive & idempotent:** the F14 tables + bucket, plus the D28 `homework_files`
+  child table + RLS + backfill of existing single-file homework; no existing column
   renamed/dropped; reuses the RLS helpers + the Study-Material accepted-mime rules.
 
 **Acceptance:**
@@ -702,7 +754,9 @@ stamps its `storage_provider`, so upload/download/delete route per-file; D27).
 - [x] `tsc --noEmit`, lint (changed files), and `next build` pass.
 
 **Code:** `supabase/migrations/20260918140000_homework.sql` (tables + RLS + bucket +
-column revokes), `utils/homework.ts` (shared types/constants),
+column revokes) + `supabase/migrations/20260921160000_multi_file_uploads.sql`
+(`homework_files` child table + RLS + backfill, D28), `utils/homework.ts` (shared
+types/constants), `utils/files.ts` (child-file loaders + per-file download resolver),
 `utils/studentHomework.ts` (student gate + scoring + mark-done),
 `app/api/homework/route.ts` (GET/POST), `app/api/homework/[id]/route.ts`
 (GET/DELETE), `app/api/homework/[id]/download/route.ts` (signed URL),
@@ -710,8 +764,10 @@ column revokes), `utils/homework.ts` (shared types/constants),
 `app/api/student/homework/[id]/route.ts` (GET),
 `app/api/student/homework/[id]/submit/route.ts` (POST — MCQ),
 `app/api/student/homework/[id]/complete/route.ts` (POST — file mark-done),
-`app/(protected)/admin/homework/page.tsx` (list),
+`app/(protected)/admin/homework/page.tsx` (batch-first list, D29),
+`app/(protected)/admin/homework/[id]/page.tsx` (detail hub — view/download/delete, D29),
 `app/(protected)/admin/homework/new/page.tsx` (two-tab create),
+`components/admin/BatchPicker.tsx` + `components/admin/useDrillStack.ts` (shared batch-first drill, D29),
 `app/(protected)/student/homework/page.tsx` (list),
 `app/(protected)/student/homework/[id]/page.tsx` (attempt / file mark-done),
 `components/layout/appNav.ts` (Homework tabs + titles),
@@ -720,7 +776,93 @@ column revokes), `utils/homework.ts` (shared types/constants),
 
 ---
 
+## F15 — Student push notifications (homework · tests · study material)  🟡
+
+**Goal:** Push a native-style notification to a student's device — even when the
+app is closed — the moment new work lands, so they never miss it: **homework
+published**, a **study-material note added**, a **test published**, and a reminder
+when a **test goes live** (its `scheduled_at` arrives). Built on the existing PWA
+(F11): reuses the installed service worker, no native app/APK.
+
+**Delivery — Web Push (VAPID):** the only mechanism that reaches a closed PWA.
+- **Server** signs pushes with a VAPID keypair (`VAPID_PUBLIC_KEY` /
+  `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`) via the `web-push` library — server-only,
+  keys never leave the server except the **public** key (`NEXT_PUBLIC_VAPID_PUBLIC_KEY`,
+  needed by the browser to subscribe).
+- **Service worker** (`public/sw.js`) gains `push` (show the notification, carrying a
+  deep-link `data.url`) and `notificationclick` (focus an open tab or open the URL)
+  handlers. No caching change — F10/F11 answer-secrecy/offline behaviour is untouched.
+- **Client** `PushToggle` asks for `Notification` permission, `pushManager.subscribe`s
+  with the public key, and POSTs the subscription to the server.
+
+**Model (see `DATA-MODEL.md`):**
+- **`push_subscriptions`** — one row per device endpoint (`user_id`, unique
+  `endpoint`, `p256dh`, `auth`, `user_agent`). Written server-side (service role)
+  after `requireUser`; a dead endpoint (push service returns 404/410) is auto-pruned
+  on the next send. RLS: a user may SELECT only their own rows; **no client writes**.
+- **`notification_events`** — an idempotency/audit log, **unique `(type, ref_id,
+  user_id)`**. Every send "claims" a row first (upsert, ignore-duplicates); only
+  newly-claimed users are actually pushed, so a student is never double-notified —
+  essential for the periodic test-live cron, and it also makes re-publish a no-op.
+
+**Triggers (server-enforced fan-out):** all fan-out targets **students enrolled in
+the batch** and is **best-effort** — wrapped so a push failure can never break the
+teacher action that triggered it.
+
+| Event | Fires from | type | Deep-link |
+|---|---|---|---|
+| Homework **published** | `POST /api/homework` (mcq/file, only when `status=published`) | `homework` | `/student/homework/[id]` |
+| Study-material note added | `POST /api/study-materials` | `study_material` | `/student/study-material/[subjectId]` |
+| Test **published** | `POST /api/tests` / `PUT /api/tests/[id]` (publish) | `test_published` | `/student/tests/[id]` |
+| Test **is live now** (`now ≥ scheduled_at`) | `GET /api/cron/notify` (scheduler) | `test_live` | `/student/tests/[id]` |
+
+**Scheduler (test-live reminder):** a cron hits `GET /api/cron/notify`, guarded by a
+`CRON_SECRET` bearer token (401 otherwise). It scans **published, non-archived** tests
+whose `scheduled_at` has passed within a short look-back window and fans out a
+`test_live` push; `notification_events` dedupe means each student is reminded once no
+matter how often the cron runs. Wire it to **Vercel Cron** (or Supabase `pg_cron`) at
+a few-minute cadence — see `.env.example` / `DECISIONS.md D30`.
+
+**Opt-in UX:** a **bell toggle** (`PushToggle`) on the student home (`/student`).
+Browsers require a user gesture to grant notification permission, so it is strictly
+opt-in; the toggle reflects the live permission/subscription state and hides where
+push is unsupported or `NEXT_PUBLIC_VAPID_PUBLIC_KEY` is unset. **iOS:** web push
+works only for an **installed** PWA on iOS 16.4+ (Add to Home Screen) — documented in
+the toggle's hint.
+
+**Rules:**
+- **Students only** are notified (fan-out is over `student_batches`); the teacher
+  authoring the content isn't pushed.
+- Security-critical behaviour is unchanged: notifications carry only a title + the
+  item name + a deep link — **never** answers or private data. The subscription
+  write trusts the authed `user.id`, never a client-supplied one.
+- Additive & idempotent migration; no existing column renamed/dropped.
+
+**Acceptance:**
+- [ ] Student enables notifications from `/student`; a subscription is stored.
+- [ ] Publishing homework / adding a note / publishing a test pushes enrolled
+      students a notification that deep-links to the item.
+- [ ] The cron pushes a "test is live" reminder once per student when `scheduled_at`
+      passes (dedupe prevents repeats across runs).
+- [ ] Tapping a notification focuses/opens the app at the deep link.
+- [ ] A push failure never breaks creating homework/tests/notes; a stale endpoint is
+      pruned.
+- [ ] With VAPID unconfigured the app builds and behaves exactly as before (feature
+      is a no-op, toggle hidden).
+- [ ] `tsc --noEmit`, lint (changed files), and `next build` pass.
+
+**Code:** `supabase/migrations/20260921180000_push_notifications.sql`,
+`utils/push.ts` (VAPID config + `notifyBatchStudents`/`notifyUsers` + dedupe + prune),
+`app/api/push/subscribe/route.ts` (POST/DELETE), `app/api/cron/notify/route.ts` (GET),
+`public/sw.js` (push + notificationclick), `components/pwa/PushToggle.tsx`,
+`app/(protected)/student/page.tsx` (mounts the toggle); trigger calls added to
+`app/api/homework/route.ts`, `app/api/study-materials/route.ts`,
+`app/api/tests/route.ts`, `app/api/tests/[id]/route.ts`. Rationale in
+`DECISIONS.md D30`.
+
+---
+
 ## Build order (remaining)
 
 Seed data + full verification pass.
-(F2/F3/F4/F5/F6/F7/F8/F9/F10/F12/F13/F14 done.)
+(F2/F3/F4/F5/F6/F7/F8/F9/F10/F12/F13/F14 done; F15 in progress.)
