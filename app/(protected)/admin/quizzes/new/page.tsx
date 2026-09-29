@@ -54,7 +54,7 @@ type GQ = {
 
 type Setup = {
   title: string;
-  batchId: string;
+  batchIds: string[];
   scheduledAt: string; // ISO
   durationMinutes: number;
   totalQuestions: number;
@@ -112,7 +112,7 @@ export default function NewTestWizard() {
       const v = await setupForm.validateFields();
       setSetup({
         title: v.title.trim(),
-        batchId: v.batchId,
+        batchIds: v.batchIds,
         scheduledAt: v.scheduledAt.toISOString(),
         durationMinutes: v.durationMinutes,
         totalQuestions: v.totalQuestions,
@@ -234,7 +234,7 @@ export default function NewTestWizard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: setup.title,
-          batchId: setup.batchId,
+          batchIds: setup.batchIds,
           scheduledAt: setup.scheduledAt,
           durationMinutes: setup.durationMinutes,
           totalQuestions: setup.totalQuestions,
@@ -253,7 +253,11 @@ export default function NewTestWizard() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to save test");
-      message.success(asDraft ? "Saved as draft." : "Test published!");
+      const n = data.count ?? 1;
+      const suffix = n > 1 ? ` to ${n} batches` : "";
+      message.success(
+        asDraft ? `Saved as draft${suffix}.` : `Test published${suffix}!`
+      );
       router.push("/admin/quizzes");
       router.refresh();
     } catch (err) {
@@ -263,10 +267,13 @@ export default function NewTestWizard() {
     }
   };
 
-  const batchName = useMemo(
-    () => batches.find((b) => b.id === setup?.batchId)?.name ?? "—",
-    [batches, setup]
-  );
+  const batchNames = useMemo(() => {
+    if (!setup?.batchIds?.length) return "—";
+    const names = setup.batchIds
+      .map((id) => batches.find((b) => b.id === id)?.name)
+      .filter(Boolean);
+    return names.length ? names.join(", ") : "—";
+  }, [batches, setup]);
 
   return (
     <PageContainer max={920}>
@@ -304,12 +311,15 @@ export default function NewTestWizard() {
             </Form.Item>
 
             <Form.Item
-              name="batchId"
-              label="Batch"
-              rules={[{ required: true, message: "Select a batch" }]}
+              name="batchIds"
+              label="Batches"
+              rules={[{ required: true, message: "Select at least one batch" }]}
+              tooltip="Pick one or more batches — a separate test is created for each."
             >
               <Select
-                placeholder={batches.length ? "Select a batch" : "No batches yet"}
+                mode="multiple"
+                allowClear
+                placeholder={batches.length ? "Select one or more batches" : "No batches yet"}
                 options={batches.map((b) => {
                   const timing = formatBatchTiming(b.start_time, b.end_time);
                   return {
@@ -611,8 +621,10 @@ export default function NewTestWizard() {
               <div>{setup.title}</div>
             </Col>
             <Col xs={12}>
-              <Text type="secondary">Batch</Text>
-              <div>{batchName}</div>
+              <Text type="secondary">
+                {setup.batchIds.length > 1 ? "Batches" : "Batch"}
+              </Text>
+              <div>{batchNames}</div>
             </Col>
             <Col xs={12}>
               <Text type="secondary">Scheduled</Text>

@@ -101,19 +101,29 @@ export async function POST(request: Request) {
   return createMcqHomework(request);
 }
 
-// Verify a batch belongs to the caller. Returns a NextResponse on failure, or null.
-async function assertBatchOwned(
+// Normalise the multi-batch `batchIds` (≥1) or the legacy single `batchId` into a
+// de-duplicated list of target batch ids (D33).
+function resolveBatchIds(batchId?: string, batchIds?: string[]) {
+  return Array.from(
+    new Set([...(batchIds ?? []), ...(batchId ? [batchId] : [])].filter(Boolean))
+  );
+}
+
+// Verify EVERY batch belongs to the caller. Returns a NextResponse on failure, or null.
+async function assertBatchesOwned(
   supabase: Awaited<ReturnType<typeof requireTeacher>>["supabase"],
-  batchId: string,
+  batchIds: string[],
   userId: string
 ) {
-  const { data: batch, error } = await supabase
+  const { data: rows, error } = await supabase
     .from("batches")
     .select("id, teacher_id")
-    .eq("id", batchId)
-    .single();
-  if (error || !batch) return bad("Selected batch was not found.", 404);
-  if (batch.teacher_id !== userId)
+    .in("id", batchIds);
+  if (error) throw error;
+  const owned = rows ?? [];
+  if (owned.length !== batchIds.length)
+    return bad("A selected batch was not found.", 404);
+  if (owned.some((b) => b.teacher_id !== userId))
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   return null;
 }
@@ -125,6 +135,7 @@ async function createMcqHomework(request: Request) {
     const {
       title,
       batchId,
+      batchIds,
       description,
       dueAt,
       totalQuestions,
@@ -135,6 +146,7 @@ async function createMcqHomework(request: Request) {
     } = body as {
       title?: string;
       batchId?: string;
+      batchIds?: string[];
       description?: string;
       dueAt?: string | null;
       totalQuestions?: number;
@@ -144,64 +156,78 @@ async function createMcqHomework(request: Request) {
       questions?: IncomingQuestion[];
     };
 
+    const targetBatchIds = resolveBatchIds(batchId, batchIds);
+
     if (!title?.trim()) return bad("A homework title is required.");
-    if (!batchId) return bad("A batch must be selected.");
+    if (targetBatchIds.length === 0) return bad("At least one batch must be selected.");
     if (!Array.isArray(questions) || questions.length === 0)
       return bad("At least one question is required.");
 
-    const owned = await assertBatchOwned(supabase, batchId, user.id);
+    const owned = await assertBatchesOwned(supabase, targetBatchIds, user.id);
     if (owned) return owned;
 
     const publish = status === "published";
+    const cleanTitle = title.trim();
 
-    const { data: hw, error: hwErr } = await supabase
-      .from("homework")
-      .insert({
-        batch_id: batchId,
-        teacher_id: user.id,
-        type: "mcq",
-        title: title.trim(),
-        description: description?.trim() || null,
-        due_at: dueAt || null,
-        total_questions: totalQuestions ?? questions.length,
-        marks_per_question: marksPerQuestion ?? 1,
-        negative_marking: negativeMarking ?? 0,
-        status: publish ? "published" : "draft",
-        is_published: publish,
-      })
-      .select("id, status")
-      .single();
-    if (hwErr) throw hwErr;
+    // Fan out: one MCQ homework (+ its questions) per selected batch (D33).
+    const created: { id: string; status: string }[] = [];
+    for (const bId of targetBatchIds) {
+      const { data: hw, error: hwErr } = await supabase
+        .from("homework")
+        .insert({
+          batch_id: bId,
+          teacher_id: user.id,
+          type: "mcq",
+          title: cleanTitle,
+          description: description?.trim() || null,
+          due_at: dueAt || null,
+          total_questions: totalQuestions ?? questions.length,
+          marks_per_question: marksPerQuestion ?? 1,
+          negative_marking: negativeMarking ?? 0,
+          status: publish ? "published" : "draft",
+          is_published: publish,
+        })
+        .select("id, status")
+        .single();
+      if (hwErr) throw hwErr;
 
-    const rows = questions.map((q, i) => ({
-      homework_id: hw.id,
-      question_text: q.text,
-      options: q.options,
-      correct_answer: q.correctOptionKey,
-      explanation: q.explanation ?? null,
-      difficulty: q.difficulty ?? null,
-      order: i,
-    }));
+      const rows = questions.map((q, i) => ({
+        homework_id: hw.id,
+        question_text: q.text,
+        options: q.options,
+        correct_answer: q.correctOptionKey,
+        explanation: q.explanation ?? null,
+        difficulty: q.difficulty ?? null,
+        order: i,
+      }));
 
-    const { error: qErr } = await supabase.from("homework_questions").insert(rows);
-    if (qErr) {
-      // Roll back so we never leave an MCQ homework with no questions.
-      await supabase.from("homework").delete().eq("id", hw.id);
-      throw qErr;
+      const { error: qErr } = await supabase.from("homework_questions").insert(rows);
+      if (qErr) {
+        // Roll back this batch's homework so it's never left with no questions.
+        await supabase.from("homework").delete().eq("id", hw.id);
+        throw qErr;
+      }
+
+      created.push({ id: hw.id as string, status: hw.status as string });
+
+      // Notify enrolled students of newly-published homework (F15; best-effort).
+      if (publish) {
+        await notifyBatchStudents(bId, {
+          type: "homework",
+          refId: hw.id as string,
+          title: "New homework",
+          body: cleanTitle,
+          url: `/student/homework/${hw.id as string}`,
+        });
+      }
     }
 
-    // Notify enrolled students of newly-published homework (F15; best-effort).
-    if (publish) {
-      await notifyBatchStudents(batchId, {
-        type: "homework",
-        refId: hw.id as string,
-        title: "New homework",
-        body: title.trim(),
-        url: `/student/homework/${hw.id as string}`,
-      });
-    }
-
-    return NextResponse.json({ id: hw.id, status: hw.status });
+    return NextResponse.json({
+      id: created[0].id,
+      status: created[0].status,
+      ids: created.map((c) => c.id),
+      count: created.length,
+    });
   } catch (error) {
     return handleError(error);
   }
@@ -214,15 +240,18 @@ async function createFileHomework(request: Request) {
     const form = await request.formData();
     const title = String(form.get("title") ?? "").trim();
     const description = String(form.get("description") ?? "").trim();
-    const batchId = String(form.get("batchId") ?? "").trim();
     const dueAt = String(form.get("dueAt") ?? "").trim();
     const statusRaw = String(form.get("status") ?? "draft").trim();
+    const targetBatchIds = resolveBatchIds(
+      String(form.get("batchId") ?? "").trim() || undefined,
+      form.getAll("batchIds").map((b) => String(b).trim()).filter(Boolean)
+    );
     const files = form
       .getAll("file")
       .filter((f): f is File => f instanceof File && f.size > 0);
 
     if (!title) return bad("A homework title is required.");
-    if (!batchId) return bad("A batch must be selected.");
+    if (targetBatchIds.length === 0) return bad("At least one batch must be selected.");
     if (files.length === 0)
       return bad("At least one PDF or image file is required.");
     if (files.length > MAX_FILES_PER_ITEM)
@@ -235,81 +264,105 @@ async function createFileHomework(request: Request) {
         return bad(`"${fileName}" is too large (max ${MAX_FILE_LABEL}).`);
     }
 
-    const owned = await assertBatchOwned(supabase, batchId, user.id);
+    const owned = await assertBatchesOwned(supabase, targetBatchIds, user.id);
     if (owned) return owned;
 
     const publish = statusRaw === "published";
 
-    // --- Insert the homework parent first (files hang off it) ---
-    const { data: hw, error: insErr } = await supabase
-      .from("homework")
-      .insert({
-        batch_id: batchId,
-        teacher_id: user.id,
-        type: "file",
-        title,
-        description: description || null,
-        due_at: dueAt || null,
-        status: publish ? "published" : "draft",
-        is_published: publish,
-      })
-      .select("id, status")
-      .single();
-    if (insErr) throw insErr;
-
-    // --- Upload each file to the active provider's private store (D27) and record a
-    // child row. Any failure rolls back the objects AND the homework parent. ---
-    const uploaded: StoredFile[] = [];
-    try {
-      const childRows = [];
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
+    // Read each file's bytes ONCE, then re-upload them for every target batch (D33) —
+    // each batch's objects live under its own `<batch_id>/…` prefix.
+    const buffered = await Promise.all(
+      files.map(async (file) => {
         const fileName = file.name || "homework";
         const mime = file.type || "";
         const storedMime = (ACCEPTED_MIMES as readonly string[]).includes(mime)
           ? mime
           : "application/pdf";
-        const stored = await uploadObject({
-          bucket: HOMEWORK_BUCKET,
-          keyPrefix: batchId,
-          ext: extForUpload(mime, fileName),
-          contentType: storedMime,
+        return {
+          fileName,
+          mime,
+          storedMime,
+          size: file.size,
           bytes: Buffer.from(await file.arrayBuffer()),
-        });
-        uploaded.push(stored);
-        childRows.push({
-          homework_id: hw.id as string,
-          storage_provider: stored.provider,
-          file_path: stored.path,
-          file_name: fileName,
-          file_size: file.size,
-          mime_type: storedMime,
-          order: i,
-        });
+        };
+      })
+    );
+
+    // Fan out: one file homework (+ its uploaded files) per selected batch.
+    const created: { id: string; status: string }[] = [];
+    for (const bId of targetBatchIds) {
+      const { data: hw, error: insErr } = await supabase
+        .from("homework")
+        .insert({
+          batch_id: bId,
+          teacher_id: user.id,
+          type: "file",
+          title,
+          description: description || null,
+          due_at: dueAt || null,
+          status: publish ? "published" : "draft",
+          is_published: publish,
+        })
+        .select("id, status")
+        .single();
+      if (insErr) throw insErr;
+
+      // Upload each buffered file to the active provider's private store (D27) and
+      // record a child row. Any failure rolls back this batch's objects AND parent.
+      const uploaded: StoredFile[] = [];
+      try {
+        const childRows = [];
+        for (let i = 0; i < buffered.length; i++) {
+          const f = buffered[i];
+          const stored = await uploadObject({
+            bucket: HOMEWORK_BUCKET,
+            keyPrefix: bId,
+            ext: extForUpload(f.mime, f.fileName),
+            contentType: f.storedMime,
+            bytes: f.bytes,
+          });
+          uploaded.push(stored);
+          childRows.push({
+            homework_id: hw.id as string,
+            storage_provider: stored.provider,
+            file_path: stored.path,
+            file_name: f.fileName,
+            file_size: f.size,
+            mime_type: f.storedMime,
+            order: i,
+          });
+        }
+
+        const { error: filesErr } = await supabase
+          .from("homework_files")
+          .insert(childRows);
+        if (filesErr) throw filesErr;
+      } catch (err) {
+        await removeObjects(HOMEWORK_BUCKET, uploaded);
+        await supabase.from("homework").delete().eq("id", hw.id);
+        throw err;
       }
 
-      const { error: filesErr } = await supabase
-        .from("homework_files")
-        .insert(childRows);
-      if (filesErr) throw filesErr;
-    } catch (err) {
-      await removeObjects(HOMEWORK_BUCKET, uploaded);
-      await supabase.from("homework").delete().eq("id", hw.id);
-      throw err;
+      created.push({ id: hw.id as string, status: hw.status as string });
+
+      // Notify enrolled students of newly-published homework (F15; best-effort).
+      if (publish) {
+        await notifyBatchStudents(bId, {
+          type: "homework",
+          refId: hw.id as string,
+          title: "New homework",
+          body: title,
+          url: `/student/homework/${hw.id as string}`,
+        });
+      }
     }
 
-    // Notify enrolled students of newly-published homework (F15; best-effort).
-    if (publish) {
-      await notifyBatchStudents(batchId, {
-        type: "homework",
-        refId: hw.id as string,
-        title: "New homework",
-        body: title,
-        url: `/student/homework/${hw.id as string}`,
-      });
-    }
-
-    return NextResponse.json({ id: hw.id, status: hw.status });
+    return NextResponse.json({
+      id: created[0].id,
+      status: created[0].status,
+      ids: created.map((c) => c.id),
+      count: created.length,
+    });
   } catch (error) {
     return handleError(error);
   }

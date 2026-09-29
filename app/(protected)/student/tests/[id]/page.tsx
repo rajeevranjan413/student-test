@@ -354,6 +354,48 @@ export default function TakeTestPage({
           }
           extra={<Button onClick={() => router.push("/student")}>Back to my tests</Button>}
         />
+        {(() => {
+          const passed =
+            meta?.passing_marks != null && result.score >= meta.passing_marks;
+          const from = passed ? "#10b981" : "#3b82f6";
+          const to = passed ? "#059669" : "#4f46e5";
+          const pct = result.max_score
+            ? Math.round((result.score / result.max_score) * 100)
+            : 0;
+          return (
+            <Flex gap={16} wrap justify="center" style={{ marginBottom: 8 }}>
+              <Card
+                className="stu-rail"
+                style={{ ["--a" as string]: from, ["--b" as string]: to, minWidth: 150, flex: "0 1 200px" }}
+                styles={{ body: { padding: "16px 20px", paddingLeft: 24 } }}
+              >
+                <Text type="secondary" style={{ fontSize: 12 }}>Your score</Text>
+                <div
+                  className="stu-gradient-text"
+                  style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.1, letterSpacing: "-0.02em", ["--a" as string]: from, ["--b" as string]: to }}
+                >
+                  {result.score}
+                  <span style={{ fontSize: 16, fontWeight: 600 }}> / {result.max_score}</span>
+                </div>
+              </Card>
+              <Card style={{ minWidth: 120, flex: "0 1 160px" }} styles={{ body: { padding: "16px 20px" } }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>Correct</Text>
+                <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.1, letterSpacing: "-0.02em" }}>
+                  {result.correct_count}
+                </div>
+              </Card>
+              <Card style={{ minWidth: 120, flex: "0 1 160px" }} styles={{ body: { padding: "16px 20px" } }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>Percentage</Text>
+                <div
+                  className="stu-gradient-text"
+                  style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.1, letterSpacing: "-0.02em", ["--a" as string]: from, ["--b" as string]: to }}
+                >
+                  {pct}%
+                </div>
+              </Card>
+            </Flex>
+          );
+        })()}
         <Divider>Review</Divider>
         <Flex vertical gap={16}>
           {result.review.map((r, i) => (
@@ -440,6 +482,7 @@ export default function TakeTestPage({
             questions.length ? Math.round((answeredCount / questions.length) * 100) : 0
           }
           showInfo={false}
+          strokeColor={{ from: "#3b82f6", to: "#4f46e5" }}
           style={{ marginTop: 8, marginBottom: 0 }}
         />
       </Card>

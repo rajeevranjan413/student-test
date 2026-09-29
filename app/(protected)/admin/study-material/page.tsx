@@ -13,6 +13,7 @@ import {
   List,
   Modal,
   Popconfirm,
+  Select,
   Space,
   Spin,
   Typography,
@@ -206,7 +207,7 @@ export default function AdminStudyMaterialPage() {
 
   const handleAddNotes = async () => {
     if (current.mode !== "notes") return;
-    let values: { title: string; description?: string };
+    let values: { title: string; description?: string; extraBatchIds?: string[] };
     try {
       values = await notesForm.validateFields();
     } catch {
@@ -236,13 +237,15 @@ export default function AdminStudyMaterialPage() {
       body.append("title", values.title);
       body.append("subjectId", current.subjectId);
       if (values.description) body.append("description", values.description);
+      for (const bId of values.extraBatchIds ?? []) body.append("batchIds", bId);
       for (const file of files) body.append("file", file);
 
       const res = await fetch("/api/study-materials", { method: "POST", body });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Upload failed");
 
-      message.success("Notes added.");
+      const n = data.count ?? 1;
+      message.success(n > 1 ? `Notes added to ${n} batches.` : "Notes added.");
       setNotesOpen(false);
       notesForm.resetFields();
       setFileList([]);
@@ -618,6 +621,23 @@ export default function AdminStudyMaterialPage() {
           <Form.Item name="description" label="Description (optional)">
             <Input.TextArea rows={3} maxLength={1000} placeholder="A short note about this material" />
           </Form.Item>
+          {current.mode === "notes" && (
+            <Form.Item
+              name="extraBatchIds"
+              label="Also post to other batches (optional)"
+              tooltip="The note is filed into a subject of the same name in each — created if it doesn't exist yet."
+            >
+              <Select
+                mode="multiple"
+                allowClear
+                placeholder="Leave empty to post only to this batch"
+                options={batches
+                  .filter((b) => b.id !== current.batchId)
+                  .map((b) => ({ value: b.id, label: b.name }))}
+                notFoundContent="No other batches"
+              />
+            </Form.Item>
+          )}
           <Form.Item label="Files (PDF or image)" required>
             <Upload
               accept={ACCEPT_ATTR}

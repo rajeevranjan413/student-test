@@ -77,27 +77,32 @@ export default function StudentHomeworkPage() {
         <Row gutter={[16, 16]} style={{ marginTop: 20 }}>
           {items.map((h) => {
             const done = h.attempt != null;
+            const from = h.type === "mcq" ? "#8b5cf6" : "#0ea5e9";
+            const to = h.type === "mcq" ? "#d946ef" : "#2563eb";
             return (
               <Col xs={24} sm={12} md={8} key={h.id}>
                 <Card
                   hoverable
-                  className="tap"
+                  className="tap stu-card"
                   styles={{ body: { padding: 16 } }}
+                  style={{
+                    height: "100%",
+                    ["--a" as string]: from,
+                    ["--b" as string]: to,
+                  }}
                   onClick={() => router.push(`/student/homework/${h.id}`)}
                 >
                   <Flex align="flex-start" gap={12}>
                     <span
+                      className="stu-tile"
                       style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
                         width: 44,
                         height: 44,
                         borderRadius: 12,
-                        background: h.type === "mcq" ? "#7c3aed1a" : "#0284c71a",
-                        color: h.type === "mcq" ? "#7c3aed" : "#0284c7",
                         fontSize: 22,
                         flexShrink: 0,
+                        ["--a" as string]: from,
+                        ["--b" as string]: to,
                       }}
                     >
                       {h.type === "mcq" ? (

@@ -9,7 +9,6 @@ import {
   Empty,
   Flex,
   Spin,
-  Statistic,
   Tag,
   Typography,
 } from "antd";
@@ -63,6 +62,15 @@ const STATE_TAG: Record<TestState, { color: string; label: string }> = {
   in_progress: { color: "gold", label: "In progress" },
   submitted: { color: "green", label: "Completed" },
   missed: { color: "red", label: "Closed" },
+};
+
+// Per-state two-stop palette for the card's coloured left rail + icon tile, so the
+// list reads at a glance (blue to-do → amber in-progress → green done → red closed).
+const STATE_ACCENT: Record<TestState, { from: string; to: string }> = {
+  not_started: { from: "#3b82f6", to: "#6366f1" },
+  in_progress: { from: "#f59e0b", to: "#f97316" },
+  submitted: { from: "#10b981", to: "#059669" },
+  missed: { from: "#ef4444", to: "#dc2626" },
 };
 
 export default function StudentTests() {
@@ -171,55 +179,84 @@ export default function StudentTests() {
       <Flex vertical gap={16} style={{ marginTop: 24 }}>
         {visibleRows.map((r) => {
           const tag = STATE_TAG[r.state];
+          const accent = STATE_ACCENT[r.state];
+          const passed =
+            r.passing_marks != null && (r.score ?? 0) >= r.passing_marks;
           return (
-            <Card key={r.id} styles={{ body: { padding: 20 } }}>
+            <Card
+              key={r.id}
+              className="stu-rail"
+              styles={{ body: { padding: 20, paddingLeft: 24 } }}
+              style={{
+                ["--a" as string]: accent.from,
+                ["--b" as string]: accent.to,
+              }}
+            >
               <Flex justify="space-between" align="flex-start" gap={16} wrap>
-                <div style={{ minWidth: 240, flex: 1 }}>
-                  <Flex align="center" gap={8} wrap>
-                    <Text strong style={{ fontSize: 16 }}>
-                      {r.title}
-                    </Text>
-                    <NewBadge status={statusById[r.id]} />
-                    <Tag color={tag.color}>{tag.label}</Tag>
-                    {r.state === "submitted" && r.is_late && <Tag color="volcano">Late</Tag>}
-                  </Flex>
-                  <Flex gap={16} wrap style={{ marginTop: 8 }}>
-                    {r.batch_name && <Text type="secondary">{r.batch_name}</Text>}
-                    <Text type="secondary">
-                      <CalendarOutlined /> {fmt(r.scheduled_at)}
-                    </Text>
-                    <Text type="secondary">
-                      <ClockCircleOutlined /> {r.duration_minutes} min
-                    </Text>
-                    <Text type="secondary">
-                      <FileTextOutlined /> {r.question_count} questions
-                    </Text>
-                  </Flex>
-                </div>
+                <Flex gap={14} style={{ minWidth: 240, flex: 1 }}>
+                  <span
+                    className="stu-tile"
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 12,
+                      fontSize: 20,
+                      flexShrink: 0,
+                      ["--a" as string]: accent.from,
+                      ["--b" as string]: accent.to,
+                    }}
+                  >
+                    <FileTextOutlined />
+                  </span>
+                  <div style={{ minWidth: 0 }}>
+                    <Flex align="center" gap={8} wrap>
+                      <Text strong style={{ fontSize: 16 }}>
+                        {r.title}
+                      </Text>
+                      <NewBadge status={statusById[r.id]} />
+                      <Tag color={tag.color}>{tag.label}</Tag>
+                      {r.state === "submitted" && r.is_late && <Tag color="volcano">Late</Tag>}
+                    </Flex>
+                    <Flex gap={16} wrap style={{ marginTop: 8 }}>
+                      {r.batch_name && <Text type="secondary">{r.batch_name}</Text>}
+                      <Text type="secondary">
+                        <CalendarOutlined /> {fmt(r.scheduled_at)}
+                      </Text>
+                      <Text type="secondary">
+                        <ClockCircleOutlined /> {r.duration_minutes} min
+                      </Text>
+                      <Text type="secondary">
+                        <FileTextOutlined /> {r.question_count} questions
+                      </Text>
+                    </Flex>
+                  </div>
+                </Flex>
 
                 <Flex align="center" gap={20}>
                   {r.state === "submitted" && r.max_score != null && (
                     <Badge.Ribbon
-                      text={
-                        r.passing_marks != null
-                          ? (r.score ?? 0) >= r.passing_marks
-                            ? "Pass"
-                            : "Fail"
-                          : ""
-                      }
-                      color={
-                        r.passing_marks != null && (r.score ?? 0) >= r.passing_marks
-                          ? "green"
-                          : "red"
-                      }
+                      text={r.passing_marks != null ? (passed ? "Pass" : "Fail") : ""}
+                      color={passed ? "green" : "red"}
                       style={{ display: r.passing_marks != null ? undefined : "none" }}
                     >
-                      <Statistic
-                        title="Score"
-                        value={r.score ?? 0}
-                        suffix={`/ ${r.max_score}`}
-                        valueStyle={{ fontSize: 20 }}
-                      />
+                      <div style={{ textAlign: "center", padding: "0 8px" }}>
+                        <div
+                          className="stu-gradient-text"
+                          style={{
+                            fontSize: 28,
+                            fontWeight: 800,
+                            lineHeight: 1.1,
+                            letterSpacing: "-0.02em",
+                            ["--a" as string]: passed ? "#10b981" : "#f59e0b",
+                            ["--b" as string]: passed ? "#059669" : "#ef4444",
+                          }}
+                        >
+                          {r.score ?? 0}
+                        </div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          out of {r.max_score}
+                        </Text>
+                      </div>
                     </Badge.Ribbon>
                   )}
                   {action(r)}

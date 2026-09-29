@@ -45,12 +45,16 @@ type Section = {
   title: string;
   desc: string;
   icon: ComponentType;
-  color: string;
+  color: string; // primary accent (badges/tags)
+  from: string; // gradient start
+  to: string; // gradient end
   href?: string; // present = active; absent = coming soon
 };
 
 // Tests is live today; Homework and Study Material are placeholders for features
 // the maintainer will add later (rendered disabled with a "Coming soon" tag).
+// Each section carries its own two-stop gradient so the cards read as a colourful,
+// coherent set (blue → homework violet → study emerald).
 const SECTIONS: Section[] = [
   {
     key: "tests",
@@ -58,6 +62,8 @@ const SECTIONS: Section[] = [
     desc: "Attempt your scheduled tests and view results.",
     icon: FileTextOutlined,
     color: "#2563eb",
+    from: "#3b82f6",
+    to: "#4f46e5",
     href: "/student/tests",
   },
   {
@@ -66,6 +72,8 @@ const SECTIONS: Section[] = [
     desc: "Assignments from your teacher.",
     icon: SolutionOutlined,
     color: "#7c3aed",
+    from: "#8b5cf6",
+    to: "#d946ef",
     href: "/student/homework",
   },
   {
@@ -74,6 +82,8 @@ const SECTIONS: Section[] = [
     desc: "Notes, PDFs and resources.",
     icon: ReadOutlined,
     color: "#059669",
+    from: "#10b981",
+    to: "#0d9488",
     href: "/student/study-material",
   },
 ];
@@ -105,15 +115,22 @@ export default function StudentHome() {
 
   return (
     <PageContainer max={960}>
-      {/* Greeting */}
-      <Flex vertical style={{ marginBottom: 16 }}>
-        <Title level={3} style={{ margin: 0 }}>
+      {/* Gradient welcome hero */}
+      <div
+        className="stu-hero"
+        style={{ padding: "clamp(20px, 5vw, 32px)", marginBottom: 20 }}
+      >
+        <span className="stu-hero-pill">✨ No game · No fame · Only aim</span>
+        <Title
+          level={2}
+          style={{ color: "#fff", margin: "14px 0 2px", fontWeight: 800, letterSpacing: "-0.02em" }}
+        >
           Welcome back 👋
         </Title>
-        <Text type="secondary">
-          Neeraj Competitive Classes · No game · No fame · Only aim
+        <Text style={{ color: "rgba(255,255,255,0.9)", fontSize: 15 }}>
+          Neeraj Competitive Classes — let&rsquo;s make today count.
         </Text>
-      </Flex>
+      </div>
 
       {/* Banner slider */}
       <Carousel autoplay autoplaySpeed={4000} draggable adaptiveHeight={false}>
@@ -125,11 +142,12 @@ export default function StudentHome() {
               style={{
                 aspectRatio: "1200 / 420",
                 width: "100%",
-                borderRadius: 12,
+                borderRadius: 16,
                 backgroundImage: `url(${b.src})`,
                 backgroundSize: "cover",
                 backgroundPosition: "center",
                 backgroundColor: "rgba(0,0,0,0.04)",
+                boxShadow: "0 14px 34px -20px rgba(16,24,40,0.4)",
               }}
             />
           </div>
@@ -153,6 +171,7 @@ export default function StudentHome() {
           return (
             <Card
               key={s.key}
+              className={active ? "stu-card" : undefined}
               hoverable={active}
               onClick={() => s.href && router.push(s.href)}
               style={{
@@ -160,22 +179,23 @@ export default function StudentHome() {
                 minWidth: 200,
                 opacity: active ? 1 : 0.6,
                 cursor: active ? "pointer" : "default",
+                // Section palette for the accent bar + hover glow (see globals.css).
+                ["--a" as string]: s.from,
+                ["--b" as string]: s.to,
               }}
               styles={{ body: { padding: 20 } }}
             >
               <Flex align="flex-start" justify="space-between" gap={12}>
                 <Badge count={active ? alert : 0} overflowCount={99} offset={[2, -2]}>
                   <span
+                    className="stu-tile"
                     style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      width: 44,
-                      height: 44,
-                      borderRadius: 12,
-                      background: `${s.color}1a`,
-                      color: s.color,
-                      fontSize: 22,
+                      width: 48,
+                      height: 48,
+                      borderRadius: 14,
+                      fontSize: 23,
+                      ["--a" as string]: s.from,
+                      ["--b" as string]: s.to,
                     }}
                   >
                     <Icon />

@@ -106,7 +106,7 @@ export default function NewHomeworkPage() {
           // Read from window.location to avoid useSearchParams' Suspense requirement.
           const preset = new URLSearchParams(window.location.search).get("batch");
           if (preset && data.some((b) => b.id === preset)) {
-            form.setFieldValue("batchId", preset);
+            form.setFieldValue("batchIds", [preset]);
           }
         }
       } catch {
@@ -183,7 +183,7 @@ export default function NewHomeworkPage() {
   const submit = async () => {
     let values: {
       title: string;
-      batchId: string;
+      batchIds: string[];
       description?: string;
       dueAt?: { toISOString: () => string } | null;
       totalQuestions?: number;
@@ -212,7 +212,7 @@ export default function NewHomeworkPage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               title: values.title.trim(),
-              batchId: values.batchId,
+              batchIds: values.batchIds,
               description: values.description ?? "",
               dueAt: dueAtIso,
               totalQuestions: values.totalQuestions ?? questions.length,
@@ -230,7 +230,11 @@ export default function NewHomeworkPage() {
           });
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || "Failed to save homework");
-          message.success(publish ? "Homework published!" : "Saved as draft.");
+          const n = data.count ?? 1;
+          const suffix = n > 1 ? ` to ${n} batches` : "";
+          message.success(
+            publish ? `Homework published${suffix}!` : `Saved as draft${suffix}.`
+          );
           router.push("/admin/homework");
           router.refresh();
         } catch (err) {
@@ -279,7 +283,7 @@ export default function NewHomeworkPage() {
     try {
       const body = new FormData();
       body.append("title", values.title.trim());
-      body.append("batchId", values.batchId);
+      for (const bId of values.batchIds) body.append("batchIds", bId);
       if (values.description) body.append("description", values.description);
       if (dueAtIso) body.append("dueAt", dueAtIso);
       body.append("status", publish ? "published" : "draft");
@@ -288,7 +292,11 @@ export default function NewHomeworkPage() {
       const res = await fetch("/api/homework", { method: "POST", body });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Upload failed");
-      message.success(publish ? "Homework published!" : "Saved as draft.");
+      const n = data.count ?? 1;
+      const suffix = n > 1 ? ` to ${n} batches` : "";
+      message.success(
+        publish ? `Homework published${suffix}!` : `Saved as draft${suffix}.`
+      );
       router.push("/admin/homework");
       router.refresh();
     } catch (err) {
@@ -328,12 +336,15 @@ export default function NewHomeworkPage() {
           <Row gutter={16}>
             <Col xs={24} sm={12}>
               <Form.Item
-                name="batchId"
-                label="Batch"
-                rules={[{ required: true, message: "Select a batch" }]}
+                name="batchIds"
+                label="Batches"
+                rules={[{ required: true, message: "Select at least one batch" }]}
+                tooltip="Pick one or more batches — a separate homework is created for each."
               >
                 <Select
-                  placeholder={batches.length ? "Select a batch" : "No batches yet"}
+                  mode="multiple"
+                  allowClear
+                  placeholder={batches.length ? "Select one or more batches" : "No batches yet"}
                   options={batchOptions}
                   notFoundContent="Create a batch first"
                 />

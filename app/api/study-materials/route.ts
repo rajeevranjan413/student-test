@@ -84,6 +84,10 @@ export async function GET(request: Request) {
 // POST /api/study-materials — file one or MORE PDF/image notes (multipart) under a
 // subject. Several files (`file` repeated) become a single note owning many files
 // (D28). The parent row holds the title/description; each file is a child row.
+//
+// Multi-batch (D33): an optional `batchIds` list also files the note into a
+// **same-named subject in each selected batch** (created when missing). The origin
+// subject is always included; the bytes are buffered once and re-uploaded per target.
 export async function POST(request: Request) {
   try {
     const { supabase, user } = await requireTeacher();
@@ -92,6 +96,10 @@ export async function POST(request: Request) {
     const title = String(form.get("title") ?? "").trim();
     const description = String(form.get("description") ?? "").trim();
     const subjectId = String(form.get("subjectId") ?? "").trim();
+    const extraBatchIds = form
+      .getAll("batchIds")
+      .map((b) => String(b).trim())
+      .filter(Boolean);
     const files = form
       .getAll("file")
       .filter((f): f is File => f instanceof File && f.size > 0);
@@ -110,10 +118,10 @@ export async function POST(request: Request) {
         return bad(`"${fileName}" is too large (max ${MAX_FILE_LABEL}).`);
     }
 
-    // Resolve the subject → its batch, and verify ownership (no cross-teacher writes).
+    // Resolve the origin subject → its batch + name, and verify ownership.
     const { data: subject, error: subjErr } = await supabase
       .from("subjects")
-      .select("id, batch_id, teacher_id")
+      .select("id, batch_id, teacher_id, name")
       .eq("id", subjectId)
       .maybeSingle();
     if (subjErr) throw subjErr;
@@ -121,75 +129,151 @@ export async function POST(request: Request) {
     if (subject.teacher_id !== user.id)
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-    const batchId = subject.batch_id as string;
+    const originBatchId = subject.batch_id as string;
+    const subjectName = subject.name as string;
 
-    // --- Insert the parent note row first (files hang off it) ---
-    const { data: row, error: insErr } = await supabase
-      .from("study_materials")
-      .insert({
-        subject_id: subjectId,
-        batch_id: batchId,
-        teacher_id: user.id,
-        kind: "notes",
-        title,
-        description: description || null,
-      })
-      .select("id")
-      .single();
-    if (insErr) throw insErr;
+    // Build the set of TARGET (batchId → subjectId) pairs. The origin batch uses the
+    // origin subject; every other selected batch resolves a same-named subject
+    // (created if missing) — verifying the teacher owns each batch first (D33).
+    const targets: { batchId: string; subjectId: string }[] = [
+      { batchId: originBatchId, subjectId },
+    ];
+    const otherBatchIds = Array.from(
+      new Set(extraBatchIds.filter((b) => b !== originBatchId))
+    );
 
-    // --- Upload each file to the active provider's private store (D27) and record a
-    // child row. Any failure rolls back the objects AND the parent note. ---
-    const uploaded: StoredFile[] = [];
-    try {
-      const childRows = [];
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
+    if (otherBatchIds.length > 0) {
+      const { data: batchRows, error: batchErr } = await supabase
+        .from("batches")
+        .select("id, teacher_id")
+        .in("id", otherBatchIds);
+      if (batchErr) throw batchErr;
+      const ownedBatches = batchRows ?? [];
+      if (ownedBatches.length !== otherBatchIds.length)
+        return bad("A selected batch was not found.", 404);
+      if (ownedBatches.some((b) => b.teacher_id !== user.id))
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+      for (const bId of otherBatchIds) {
+        // Find a live, teacher-owned subject with the same name in this batch (take
+        // the earliest if a batch happens to have duplicate-named folders)…
+        const { data: existing, error: findErr } = await supabase
+          .from("subjects")
+          .select("id")
+          .eq("batch_id", bId)
+          .eq("teacher_id", user.id)
+          .eq("name", subjectName)
+          .is("archived_at", null)
+          .order("created_at", { ascending: true })
+          .limit(1);
+        if (findErr) throw findErr;
+
+        let targetSubjectId = existing?.[0]?.id as string | undefined;
+        if (!targetSubjectId) {
+          // …or create it so the note has a folder to live in.
+          const { data: made, error: makeErr } = await supabase
+            .from("subjects")
+            .insert({ batch_id: bId, teacher_id: user.id, name: subjectName })
+            .select("id")
+            .single();
+          if (makeErr) throw makeErr;
+          targetSubjectId = made.id as string;
+        }
+        targets.push({ batchId: bId, subjectId: targetSubjectId });
+      }
+    }
+
+    // Read each file's bytes ONCE, then re-upload them for every target (D33).
+    const buffered = await Promise.all(
+      files.map(async (file) => {
         const fileName = file.name || "notes";
         const mime = file.type || "";
         const storedMime = (ACCEPTED_MIMES as readonly string[]).includes(mime)
           ? mime
           : "application/pdf";
-        const stored = await uploadObject({
-          bucket: STUDY_BUCKET,
-          keyPrefix: `${batchId}/${subjectId}`,
-          ext: extForUpload(mime, fileName),
-          contentType: storedMime,
+        return {
+          fileName,
+          mime,
+          storedMime,
+          size: file.size,
           bytes: Buffer.from(await file.arrayBuffer()),
-        });
-        uploaded.push(stored);
-        childRows.push({
-          material_id: row.id as string,
-          storage_provider: stored.provider,
-          file_path: stored.path,
-          file_name: fileName,
-          file_size: file.size,
-          mime_type: storedMime,
-          order: i,
-        });
+        };
+      })
+    );
+
+    // Fan out: one note (+ its files) per target subject.
+    const ids: string[] = [];
+    for (const target of targets) {
+      // --- Insert the parent note row first (files hang off it) ---
+      const { data: row, error: insErr } = await supabase
+        .from("study_materials")
+        .insert({
+          subject_id: target.subjectId,
+          batch_id: target.batchId,
+          teacher_id: user.id,
+          kind: "notes",
+          title,
+          description: description || null,
+        })
+        .select("id")
+        .single();
+      if (insErr) throw insErr;
+
+      // --- Upload each buffered file to the active provider's private store (D27) and
+      // record a child row. Any failure rolls back this target's objects AND note. ---
+      const uploaded: StoredFile[] = [];
+      try {
+        const childRows = [];
+        for (let i = 0; i < buffered.length; i++) {
+          const f = buffered[i];
+          const stored = await uploadObject({
+            bucket: STUDY_BUCKET,
+            keyPrefix: `${target.batchId}/${target.subjectId}`,
+            ext: extForUpload(f.mime, f.fileName),
+            contentType: f.storedMime,
+            bytes: f.bytes,
+          });
+          uploaded.push(stored);
+          childRows.push({
+            material_id: row.id as string,
+            storage_provider: stored.provider,
+            file_path: stored.path,
+            file_name: f.fileName,
+            file_size: f.size,
+            mime_type: f.storedMime,
+            order: i,
+          });
+        }
+
+        const { error: filesErr } = await supabase
+          .from("study_material_files")
+          .insert(childRows);
+        if (filesErr) throw filesErr;
+      } catch (err) {
+        await removeObjects(STUDY_BUCKET, uploaded);
+        await supabase.from("study_materials").delete().eq("id", row.id);
+        throw err;
       }
 
-      const { error: filesErr } = await supabase
-        .from("study_material_files")
-        .insert(childRows);
-      if (filesErr) throw filesErr;
-    } catch (err) {
-      await removeObjects(STUDY_BUCKET, uploaded);
-      await supabase.from("study_materials").delete().eq("id", row.id);
-      throw err;
+      ids.push(row.id as string);
+
+      // Notify enrolled students of the new note (F15; best-effort). Deep-link to the
+      // subject folder so the student lands where the note lives.
+      await notifyBatchStudents(target.batchId, {
+        type: "study_material",
+        refId: row.id as string,
+        title: "New study material",
+        body: title,
+        url: `/student/study-material/${target.subjectId}`,
+      });
     }
 
-    // Notify enrolled students of the new note (F15; best-effort). Deep-link to the
-    // subject folder so the student lands where the note lives.
-    await notifyBatchStudents(batchId, {
-      type: "study_material",
-      refId: row.id as string,
-      title: "New study material",
-      body: title,
-      url: `/student/study-material/${subjectId}`,
+    return NextResponse.json({
+      id: ids[0],
+      ids,
+      count: ids.length,
+      file_count: files.length,
     });
-
-    return NextResponse.json({ id: row.id, file_count: files.length });
   } catch (error) {
     return handleError(error);
   }

@@ -11,11 +11,11 @@ export const metadata = {
   title: "Neeraj Competitive Classes",
   description:
     "Neeraj Competitive Classes — Railway, SSC, Bank & Police coaching. No game · No fame · Only aim.",
-  applicationName: "Neeraj Classes",
+  applicationName: "Neeraj Competitive Classes",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Neeraj Classes",
+    title: "Neeraj Competitive Classes",
   },
   icons: {
     icon: "/icon-192.png",

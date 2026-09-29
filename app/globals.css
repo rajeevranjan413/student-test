@@ -208,6 +208,143 @@
   transform: translateY(-1px);
 }
 
+/* 5c. Student panel — premium, colorful polish. Reusable, section-agnostic
+      classes: each caller sets its own two-stop palette via the `--a` / `--b`
+      CSS variables (inline), so one class renders any section's colour. All
+      values are algorithm-neutral and read correctly in light + dark. */
+
+/* Colourful gradient hero (student home welcome). A deep brand gradient with two
+   soft floating "aurora" blobs behind the content for depth. */
+.stu-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  color: #fff;
+  background: linear-gradient(120deg, #4f46e5 0%, #2563eb 45%, #0ea5e9 100%);
+  box-shadow: 0 20px 48px -24px rgba(37, 99, 235, 0.6);
+  isolation: isolate;
+}
+.dark .stu-hero {
+  background: linear-gradient(120deg, #4338ca 0%, #1d4ed8 45%, #0369a1 100%);
+  box-shadow: 0 20px 52px -26px rgba(0, 0, 0, 0.8);
+}
+.stu-hero::before,
+.stu-hero::after {
+  content: "";
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(40px);
+  z-index: -1;
+  pointer-events: none;
+}
+.stu-hero::before {
+  width: 260px;
+  height: 260px;
+  top: -90px;
+  right: -40px;
+  background: radial-gradient(circle, rgba(236, 72, 153, 0.55), transparent 70%);
+  animation: stu-float 11s ease-in-out infinite;
+}
+.stu-hero::after {
+  width: 220px;
+  height: 220px;
+  bottom: -110px;
+  left: -30px;
+  background: radial-gradient(circle, rgba(45, 212, 191, 0.5), transparent 70%);
+  animation: stu-float 13s ease-in-out infinite reverse;
+}
+@keyframes stu-float {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(14px, -12px) scale(1.12); }
+}
+
+/* A soft pill used on the hero (e.g. the motto). */
+.stu-hero-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 9999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(4px);
+}
+
+/* Colourful icon tile — a gradient chip carrying a section/feature icon.
+   Caller sets `--a`/`--b` (two hex stops). */
+.stu-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(135deg, var(--a), var(--b));
+  box-shadow: 0 10px 22px -8px var(--a);
+}
+
+/* Accent card — a plain antd Card that grows a coloured top bar + tinted glow
+   on hover, in the caller's `--a`/`--b` palette. Layer on top of `.ant-card`. */
+.stu-card {
+  position: relative;
+  overflow: hidden;
+}
+.stu-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--a), var(--b));
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.25s ease;
+}
+.stu-card:hover::before,
+.stu-card:focus-within::before {
+  transform: scaleX(1);
+}
+.stu-card.ant-card-hoverable:hover {
+  border-color: color-mix(in srgb, var(--a) 55%, var(--border));
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.06),
+    0 24px 50px -24px color-mix(in srgb, var(--a) 55%, transparent);
+}
+.dark .stu-card.ant-card-hoverable:hover {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.5),
+    0 24px 52px -24px color-mix(in srgb, var(--a) 60%, transparent);
+}
+
+/* Gradient number (score / stat headline). Caller sets `--a`/`--b`. */
+.stu-gradient-text {
+  background: linear-gradient(120deg, var(--a), var(--b));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+/* A thin coloured rail down the left edge of a status card. */
+.stu-rail {
+  position: relative;
+  overflow: hidden;
+}
+.stu-rail::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: linear-gradient(180deg, var(--a), var(--b));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stu-hero::before,
+  .stu-hero::after {
+    animation: none;
+  }
+}
+
 /* 6. Mobile calendar / date-time popups (Ant Design DatePicker).
       The picker dropdown is portal-rendered at <body>, so it can't be styled
       per-page. On phones the date + time panel is wider than the screen and gets

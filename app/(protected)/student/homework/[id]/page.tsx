@@ -14,7 +14,6 @@ import {
   Result,
   Space,
   Spin,
-  Statistic,
   Tag,
   Typography,
 } from "antd";
@@ -230,17 +229,15 @@ export default function StudentHomeworkDetail() {
                 return (
                   <Flex key={f.id} align="center" gap={12} wrap>
                     <span
+                      className="stu-tile"
                       style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
                         width: 36,
                         height: 36,
                         borderRadius: 10,
-                        background: image ? "#0ea5e91a" : "#dc26261a",
-                        color: image ? "#0ea5e9" : "#dc2626",
                         fontSize: 18,
                         flexShrink: 0,
+                        ["--a" as string]: image ? "#0ea5e9" : "#f43f5e",
+                        ["--b" as string]: image ? "#06b6d4" : "#dc2626",
                       }}
                     >
                       {image ? <FileImageOutlined /> : <FilePdfOutlined />}
@@ -303,20 +300,45 @@ export default function StudentHomeworkDetail() {
       {hw.type === "mcq" && (
         <>
           {submitted && (
-            <Card style={{ marginBottom: 16 }}>
-              <Space size="large" wrap>
-                <Statistic
-                  title="Score"
-                  value={attempt?.score ?? 0}
-                  suffix={`/ ${attempt?.max_score ?? 0}`}
-                  prefix={<CheckCircleTwoTone twoToneColor="#16a34a" />}
-                />
-                <Statistic
-                  title="Correct"
-                  value={attempt?.correct_count ?? 0}
-                  suffix={`/ ${data.questions.length}`}
-                />
-              </Space>
+            <Card
+              className="stu-rail"
+              style={{ marginBottom: 16, ["--a" as string]: "#10b981", ["--b" as string]: "#059669" }}
+              styles={{ body: { paddingLeft: 24 } }}
+            >
+              <Flex gap={40} wrap align="flex-end">
+                <div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    <CheckCircleTwoTone twoToneColor="#16a34a" /> Score
+                  </Text>
+                  <div
+                    className="stu-gradient-text"
+                    style={{
+                      fontSize: 34,
+                      fontWeight: 800,
+                      lineHeight: 1.1,
+                      letterSpacing: "-0.02em",
+                      ["--a" as string]: "#10b981",
+                      ["--b" as string]: "#059669",
+                    }}
+                  >
+                    {attempt?.score ?? 0}
+                    <span style={{ fontSize: 16, fontWeight: 600 }}>
+                      {" "}/ {attempt?.max_score ?? 0}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Correct
+                  </Text>
+                  <div style={{ fontSize: 34, fontWeight: 800, lineHeight: 1.1, letterSpacing: "-0.02em" }}>
+                    {attempt?.correct_count ?? 0}
+                    <span style={{ fontSize: 16, fontWeight: 600, color: "var(--muted-foreground)" }}>
+                      {" "}/ {data.questions.length}
+                    </span>
+                  </div>
+                </div>
+              </Flex>
             </Card>
           )}
 

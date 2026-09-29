@@ -6,7 +6,7 @@ import type { MetadataRoute } from "next";
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Neeraj Competitive Classes",
-    short_name: "Neeraj Classes",
+    short_name: "Neeraj Competitive Classes",
     description:
       "Neeraj Competitive Classes — Railway, SSC, Bank & Police coaching with AI-generated tests and a live leaderboard. No game · No fame · Only aim.",
     id: "/",

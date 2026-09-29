@@ -160,8 +160,9 @@ Rationale in `DECISIONS.md D14`.
 **Goal:** Turn a photo of notes/book page into approved MCQs + a scheduled test.
 
 **UI:** `/admin/quizzes/new` — antd `Steps`:
-1. **Setup** — title, batch, `scheduled_at` (date+time), duration,
-   total required questions, optional marks scheme.
+1. **Setup** — title, **one or more batches** (multi-select), `scheduled_at`
+   (date+time), duration, total required questions, optional marks scheme. Selecting
+   N batches **fan-outs** into N independent tests, one per batch (D33).
 2. **Generate** — drag-drop image upload, count-this-round, extra prompt → generate.
    Also **Add question manually** (opens the question editor with a blank MCQ) so a
    test can be built with no image at all.
@@ -198,8 +199,11 @@ MCQ editor as the wizard).
   `components/QuestionContent.tsx` (sanitized HTML / inline image / plain text).
 - Publish gated on `approved ≥ required`, with explicit confirm to publish fewer.
 - Correct answers shown to the teacher here only; never sent to students (F6).
-- `POST /api/tests` verifies the batch belongs to the teacher; rolls back the quiz
-  if question insert fails (no test left question-less).
+- `POST /api/tests` accepts **`batchIds` (≥1; legacy single `batchId` still works)**,
+  verifies **every** batch belongs to the teacher, then **fan-outs** — creating one
+  quiz (+ its questions) per batch (D33) and notifying each batch's students. It rolls
+  back a batch's quiz if its question insert fails (no test left question-less), and
+  returns `{ ids, count }` (+ first `id`/`status` for back-compat).
 - **Edit** (`PUT /api/tests/[id]`): teacher-only, ownership re-checked (404 on
   mismatch); a changed batch must also belong to the teacher. Test **settings** are
   always editable. The **question set** may be replaced **only while the test has no
@@ -222,6 +226,8 @@ MCQ editor as the wizard).
 - [x] **Question & explanation each accept formatted text (bold/list) OR an image**
       via a Text ⇄ Image tab; options stay plain text; students see it rendered (D31).
 - [x] Publish only when approved meets required (or admin confirms fewer).
+- [x] **Select multiple batches** in Setup → one independent test is created per
+      batch (fan-out, D33); each ties to its batch + schedule, status `published`.
 - [x] Published test tied to batch + schedule, status `published`.
 - [x] Correct answers not exposed to students (stored as key, filtered in F6).
 - [x] **Edit an existing test** — settings always; questions while no attempts
@@ -639,7 +645,10 @@ parent's legacy inline file columns are kept but nullable.
   drills into that batch's **subjects** as folder cards (name + note count) with an
   **Add subject** action; tapping a subject drills into that **subject's notes** — the
   detail level where every action lives: **Add notes** (modal: Title, optional
-  Description, **PDF or image** via antd `Upload` held client-side until submit),
+  Description, an optional **"also post to" batch multi-select**, and **PDF or image**
+  via antd `Upload` held client-side until submit). Choosing extra batches fan-outs the
+  note into a **same-named subject in each** (created if missing), on top of the current
+  subject (D33).
   per-note **View / Download / Delete**, and **Delete subject** (`Popconfirm`, cascades
   its notes + files). Breadcrumb/back climbs subjects → batch grid. The batch and
   subject grids carry no destructive actions.
@@ -659,15 +668,19 @@ parent's legacy inline file columns are kept but nullable.
   **hard-deletes** the subject; its `study_materials` cascade (FK) and their storage
   objects are removed best-effort first (no orphaned bytes).
 - **Teacher-only note writes.** `POST /api/study-materials` (`requireTeacher`,
-  multipart) takes a **`subjectId`** and **one or more** `file` parts, validates each
-  is a PDF or image (`application/pdf` / `image/*`, ≤ **100 MB** each, ≤ 20 files),
-  verifies the subject → batch belongs to the teacher, inserts the note parent, then
-  uploads each file's bytes to the **active private storage provider** via the shared
-  `utils/storage.ts` layer (Supabase Storage by default; **Cloudinary** once
-  `STORAGE_PROVIDER=cloudinary`, e.g. after the Supabase free tier fills — D27) and
-  records a `study_material_files` child row (its own `storage_provider` +
-  provider-relative `file_path`, `order`). If any upload/insert fails, the uploaded
-  objects **and** the parent note are rolled back (no orphan). `DELETE
+  multipart) takes a **`subjectId`**, an optional **`batchIds`** list of extra batches
+  to also post into, and **one or more** `file` parts, validates each is a PDF or image
+  (`application/pdf` / `image/*`, ≤ **100 MB** each, ≤ 20 files), verifies the subject →
+  batch belongs to the teacher. It resolves a **target subject per selected batch** —
+  the origin subject for its own batch, and a **same-named, teacher-owned subject
+  (created if missing)** in each extra batch (D33) — then **fan-outs**: per target it
+  inserts the note parent and uploads each file's bytes to the **active private storage
+  provider** via the shared `utils/storage.ts` layer (Supabase Storage by default;
+  **Cloudinary** once `STORAGE_PROVIDER=cloudinary`, e.g. after the Supabase free tier
+  fills — D27), recording a `study_material_files` child row (its own `storage_provider`
+  + provider-relative `file_path`, `order`). File bytes are buffered once and re-uploaded
+  per target. If a target's upload/insert fails, that target's uploaded objects **and**
+  its note parent are rolled back (no orphan); it returns `{ ids, count }`. `DELETE
   /api/study-materials/[id]` hard-deletes (ownership-checked): it removes every file
   object **from whichever provider holds it** (per row) then the note (child rows
   cascade).
@@ -695,6 +708,8 @@ parent's legacy inline file columns are kept but nullable.
 - [x] Teacher adds a subject to a batch; it appears as a folder in the admin list.
 - [x] Teacher files a note (title + description with **one or more** PDFs/images)
       under a subject; every file appears under that note in the subject's folder.
+- [x] Teacher can **also post the note to other batches** in one go; each gets a
+      same-named subject (created if missing) with its own copy of the note (D33).
 - [x] Non-PDF/-image or oversized (> 100 MB) upload is rejected server-side; a
       cross-teacher batch/subject is refused.
 - [x] A student enrolled in the batch sees the subject folders and, opening one,
@@ -764,7 +779,8 @@ file row stamps its `storage_provider`, so upload/download/delete route per-file
   or deleted** (the lists carry no destructive actions). **Create homework** launches
   **`/admin/homework/new`** (batch prefilled when created from inside a batch).
   **`/admin/homework/new`** is the create screen:
-  shared header (title, batch, optional due date, description, publish/draft) then
+  shared header (title, **one or more batches** (multi-select), optional due date,
+  description, publish/draft — selecting N batches fan-outs into N homework, D33) then
   **Tabs**: *MCQ questions* (photo → **Generate** with the AI endpoint, plus **Add
   manually**; each question editable/removable; optional marks scheme + target) and
   *PDF / Image* (**multi-file** `Upload`, held client-side until submit). Submit posts
@@ -776,13 +792,17 @@ file row stamps its `storage_provider`, so upload/download/delete route per-file
   **active** Homework card on the student home (F12) and a **Homework** nav tab.
 
 **Rules (server-enforced):**
-- **Teacher-only writes.** `POST /api/homework` (`requireTeacher`) verifies the
-  target batch belongs to the teacher. MCQ: inserts the homework + its questions
-  (rolls back the homework if the question insert fails). File: accepts **one or more**
-  `file` parts, validates each is a PDF/image (`application/pdf` / `image/*`, ≤ **100
-  MB** each, ≤ 20 files), inserts the homework parent, uploads each to the private
-  `homework` store (path `<batch_id>/<uuid>.<ext>`), then inserts a `homework_files`
-  child row per file (rolls back all objects **and** the parent on failure). `GET
+- **Teacher-only writes.** `POST /api/homework` (`requireTeacher`) accepts **`batchIds`
+  (≥1; legacy single `batchId` still works)**, verifies **every** target batch belongs
+  to the teacher, then **fan-outs** — creating one homework per batch (D33) and
+  notifying each batch's students; it returns `{ ids, count }` (+ first `id`/`status`).
+  MCQ: inserts the homework + its questions per batch (rolls back that batch's homework
+  if the question insert fails). File: accepts **one or more** `file` parts, validates
+  each is a PDF/image (`application/pdf` / `image/*`, ≤ **100 MB** each, ≤ 20 files),
+  buffers the bytes once, then per batch inserts the homework parent, uploads each file
+  to the private `homework` store (path `<batch_id>/<uuid>.<ext>`), and inserts a
+  `homework_files` child row per file (rolls back that batch's objects **and** parent on
+  failure). `GET
   /api/homework?batch=` lists the teacher's homework with question counts + attached
   files. `GET /api/homework/[id]` returns the full homework (MCQ answers via the
   **service role**, column-revoked; file rows for `file` homework). `DELETE
@@ -810,6 +830,8 @@ file row stamps its `storage_provider`, so upload/download/delete route per-file
 **Acceptance:**
 - [x] Teacher creates **MCQ** homework for a batch — builds questions **manually
       and/or via AI** — and it appears in the admin list; students can attempt it.
+- [x] Selecting **multiple batches** creates one independent homework per batch
+      (fan-out, D33) for both MCQ and file kinds.
 - [x] Teacher creates **PDF/Image** homework (file upload) for a batch; non-PDF/-image
       or oversized upload is rejected server-side; a cross-teacher batch is refused.
 - [x] A student attempts MCQ homework **once** (second submit blocked server-side),

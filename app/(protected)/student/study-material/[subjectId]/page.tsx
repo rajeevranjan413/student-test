@@ -135,17 +135,15 @@ export default function StudentSubjectNotesPage({
                     return (
                       <Flex key={f.id} align="center" gap={12} wrap>
                         <span
+                          className="stu-tile"
                           style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
                             width: 36,
                             height: 36,
                             borderRadius: 10,
-                            background: image ? "#0ea5e91a" : "#dc26261a",
-                            color: image ? "#0ea5e9" : "#dc2626",
                             fontSize: 18,
                             flexShrink: 0,
+                            ["--a" as string]: image ? "#0ea5e9" : "#f43f5e",
+                            ["--b" as string]: image ? "#06b6d4" : "#dc2626",
                           }}
                         >
                           {image ? <FileImageOutlined /> : <FilePdfOutlined />}

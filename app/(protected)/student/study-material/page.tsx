@@ -17,6 +17,17 @@ import { NewBadge } from "@/components/student/NewBadge";
 
 const { Title, Text } = Typography;
 
+// A rotating palette so a grid of subject folders reads as a colourful set rather
+// than one repeated tint. Cycled by index — stable per position on the page.
+const FOLDER_PALETTE: { from: string; to: string }[] = [
+  { from: "#6366f1", to: "#8b5cf6" }, // indigo → violet
+  { from: "#f59e0b", to: "#f97316" }, // amber → orange
+  { from: "#10b981", to: "#0d9488" }, // emerald → teal
+  { from: "#ec4899", to: "#f43f5e" }, // pink → rose
+  { from: "#0ea5e9", to: "#2563eb" }, // sky → blue
+  { from: "#14b8a6", to: "#06b6d4" }, // teal → cyan
+];
+
 /**
  * Student Study Material (F13 / D25): the subject **folders** for the student's
  * enrolled batches. Reached from the Study Material card on the student home (F12).
@@ -78,12 +89,19 @@ export default function StudentStudyMaterialPage() {
         </Card>
       ) : (
         <Row gutter={[16, 16]} style={{ marginTop: 20 }}>
-          {subjects.map((s) => (
+          {subjects.map((s, i) => {
+            const pal = FOLDER_PALETTE[i % FOLDER_PALETTE.length];
+            return (
             <Col xs={24} sm={12} md={8} key={s.id}>
               <Card
                 hoverable
-                className="tap"
+                className="tap stu-card"
                 styles={{ body: { padding: 16 } }}
+                style={{
+                  height: "100%",
+                  ["--a" as string]: pal.from,
+                  ["--b" as string]: pal.to,
+                }}
                 onClick={() => router.push(`/student/study-material/${s.id}`)}
               >
                 <div
@@ -94,17 +112,15 @@ export default function StudentStudyMaterialPage() {
                   }}
                 >
                   <span
+                    className="stu-tile"
                     style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
                       width: 44,
                       height: 44,
                       borderRadius: 12,
-                      background: "#4f46e51a",
-                      color: "#4f46e5",
                       fontSize: 22,
                       flexShrink: 0,
+                      ["--a" as string]: pal.from,
+                      ["--b" as string]: pal.to,
                     }}
                   >
                     <FolderOpenOutlined />
@@ -127,7 +143,8 @@ export default function StudentStudyMaterialPage() {
                 </div>
               </Card>
             </Col>
-          ))}
+            );
+          })}
         </Row>
       )}
     </PageContainer>
