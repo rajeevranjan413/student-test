@@ -65,6 +65,12 @@ export type Subject = {
   name: string;
   note_count: number;
   created_at: string;
+  /**
+   * Latest note activity in this folder — max over its notes of
+   * greatest(created_at, updated_at), or null when the folder is empty. Powers the
+   * F16 "new notes" indicator (with note_count) on the student folder grid.
+   */
+  activity_at?: string | null;
 };
 
 /**

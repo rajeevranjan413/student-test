@@ -60,6 +60,8 @@ export type StudentHomeworkItem = {
   /** Attached files (file-kind homework only; empty for MCQ). */
   files: StoredFileMeta[];
   created_at: string;
+  /** Last edit time (F16 "what's new" — greatest(created_at, updated_at) signature). */
+  updated_at: string | null;
   // The student's own attempt (null until they submit / mark done).
   attempt: {
     status: "submitted" | "done";

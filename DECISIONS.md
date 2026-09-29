@@ -784,6 +784,44 @@ the signatures — F10 secrecy is untouched.
 
 **Verify:** `npx tsc --noEmit` · `npx eslint` (changed files) · `npx next build`.
 
+## D33 — Posting to multiple batches = fan-out, not a new m2m (F3/F13/F14)
+Admins asked to post a **test / homework / study-material note to several batches at
+once** instead of one at a time. Two ways: (a) make each item many-to-many with
+batches (a junction table + reworked RLS/authorization/edit, and a `batch_id` that
+every read path and the enrollment-based RLS depends on would have to become a join),
+or (b) **fan out** — the create screens take **multiple batches**, and the API creates
+**one independent row per selected batch**. We chose **fan-out**:
+- **No schema/RLS/contract change.** Each created quiz/homework/note keeps its single
+  `batch_id`; the timing model, single-attempt guarantee, per-batch results/leaderboard,
+  the F16 "what's new" signal, and every enrollment-based policy are untouched. Editing
+  and deleting stay per-row (a batch's copy is edited/removed on its own), which matches
+  how admins reason about a batch's schedule.
+- **APIs accept `batchIds` (≥1); the legacy single `batchId` still works.** `POST
+  /api/tests`, `POST /api/homework` (MCQ JSON + file multipart), and `POST
+  /api/study-materials` verify **every** target batch belongs to the teacher, then loop:
+  insert the parent row (+ questions / + files) per batch, and fan out the F15
+  notification per batch. File uploads buffer the bytes **once** and re-upload per batch
+  (each batch's objects live under its own `<batch_id>/…` prefix, so a batch's delete
+  only removes its own files). A failure rolls back that batch's row/objects and aborts;
+  earlier batches already committed are reported in the response (`ids[]`).
+- **Study Material is subject-scoped** (a note lives in a per-batch subject folder), so
+  fan-out there files the note into a **same-named subject in each selected batch**,
+  **creating the subject when missing** (owned by the teacher). The origin subject is
+  always included. This keeps the folder model intact while letting one upload seed many
+  batches.
+- **Response is additive:** each POST now returns `{ ids: [...], count }` (plus the
+  first `id` / `status` for back-compat). The create screens only redirect on success,
+  so they consume the count for the toast and ignore the rest.
+
+**Why fan-out:** it's the smallest change that satisfies the ask without disturbing the
+security-critical, per-batch invariants the rest of the app leans on; a junction table
+would ripple through RLS, scoring, reporting, and the "what's new" signature for no
+user-visible gain. Trade-off: editing a test's schedule in five batches touches five
+rows — acceptable, and clearer than one row silently owned by five batches. Multi-select
+UI reuses antd `Select mode="multiple"`.
+
+**Verify:** `npx tsc --noEmit` · `npx eslint` (changed files) · `npx next build`.
+
 ## Open items (next passes)
 - When the legacy `/home` browser-write builder is retired, tighten the teacher
   quizzes/questions write policies from `is_teacher()` to owner-scoped
