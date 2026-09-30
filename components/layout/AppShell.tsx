@@ -4,8 +4,8 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ArrowLeft, LogOut, MoreVertical, Settings } from "lucide-react";
-import { ThemeToggle } from "./ThemeToggle";
-import { NCLogo } from "./NCLogo";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { NCLogo } from "@/components/layout/NCLogo";
 import { useBatches } from "@/components/providers/BatchProvider";
 import {
   homeFor,
