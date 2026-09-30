@@ -9,7 +9,13 @@ import {
   extForUpload,
   isAcceptedFile,
 } from "@/utils/studyMaterial";
-import { removeObjects, uploadObject, type StoredFile } from "@/utils/storage";
+import {
+  copyObject,
+  headObject,
+  removeObjects,
+  toStoredFile,
+  type StoredFile,
+} from "@/utils/storage";
 import { filesByParent } from "@/utils/files";
 import { notifyBatchStudents } from "@/utils/push";
 
@@ -81,41 +87,43 @@ export async function GET(request: Request) {
   }
 }
 
-// POST /api/study-materials — file one or MORE PDF/image notes (multipart) under a
-// subject. Several files (`file` repeated) become a single note owning many files
-// (D28). The parent row holds the title/description; each file is a child row.
+// POST /api/study-materials — file one or MORE PDF/image notes under a subject. The
+// bytes were already uploaded DIRECTLY to R2 by the browser via presigned PUT URLs
+// (D35); this JSON finalize step records the rows. Several files become a single note
+// owning many files (D28) — the parent row holds the title/description, each file a
+// child row.
 //
 // Multi-batch (D33): an optional `batchIds` list also files the note into a
 // **same-named subject in each selected batch** (created when missing). The origin
-// subject is always included; the bytes are buffered once and re-uploaded per target.
+// subject is always included; the uploaded objects are COPIED server-side (R2→R2, no
+// bytes through this server) per extra target.
+type IncomingUpload = { key?: string; name?: string; size?: number; type?: string };
+
 export async function POST(request: Request) {
   try {
     const { supabase, user } = await requireTeacher();
 
-    const form = await request.formData();
-    const title = String(form.get("title") ?? "").trim();
-    const description = String(form.get("description") ?? "").trim();
-    const subjectId = String(form.get("subjectId") ?? "").trim();
-    const extraBatchIds = form
-      .getAll("batchIds")
-      .map((b) => String(b).trim())
-      .filter(Boolean);
-    const files = form
-      .getAll("file")
-      .filter((f): f is File => f instanceof File && f.size > 0);
+    const body = await request.json().catch(() => ({}));
+    const title = String(body?.title ?? "").trim();
+    const description = String(body?.description ?? "").trim();
+    const subjectId = String(body?.subjectId ?? "").trim();
+    const extraBatchIds: string[] = Array.isArray(body?.batchIds)
+      ? body.batchIds.map((b: unknown) => String(b).trim()).filter(Boolean)
+      : [];
+    const uploads: IncomingUpload[] = Array.isArray(body?.files) ? body.files : [];
 
     // --- Validation ---
     if (!title) return bad("A title is required.");
     if (!subjectId) return bad("A subject must be selected.");
-    if (files.length === 0) return bad("At least one PDF or image file is required.");
-    if (files.length > MAX_FILES_PER_ITEM)
+    if (uploads.length === 0) return bad("At least one PDF or image file is required.");
+    if (uploads.length > MAX_FILES_PER_ITEM)
       return bad(`You can attach up to ${MAX_FILES_PER_ITEM} files at once.`);
-    for (const file of files) {
-      const fileName = file.name || "notes";
-      if (!isAcceptedFile(file.type || "", fileName))
+    for (const u of uploads) {
+      const fileName = (u.name || "").trim() || "notes";
+      if (!u.key || typeof u.key !== "string")
+        return bad(`"${fileName}": upload was not completed.`);
+      if (!isAcceptedFile(u.type || "", fileName))
         return bad(`"${fileName}": only PDF or image files are allowed.`);
-      if (file.size > MAX_FILE_BYTES)
-        return bad(`"${fileName}" is too large (max ${MAX_FILE_LABEL}).`);
     }
 
     // Resolve the origin subject → its batch + name, and verify ownership.
@@ -183,27 +191,39 @@ export async function POST(request: Request) {
       }
     }
 
-    // Read each file's bytes ONCE, then re-upload them for every target (D33).
-    const buffered = await Promise.all(
-      files.map(async (file) => {
-        const fileName = file.name || "notes";
-        const mime = file.type || "";
-        const storedMime = (ACCEPTED_MIMES as readonly string[]).includes(mime)
-          ? mime
-          : "application/pdf";
-        return {
-          fileName,
-          mime,
-          storedMime,
-          size: file.size,
-          bytes: Buffer.from(await file.arrayBuffer()),
-        };
-      })
-    );
+    // Verify each browser-uploaded object: it MUST live under this subject's origin
+    // prefix (a key the sign route minted for this subject) and actually exist in R2.
+    // HEAD gives the authoritative size (trusted over the client-reported one).
+    const originPrefix = `${STUDY_BUCKET}/${originBatchId}/${subjectId}/`;
+    const sources: {
+      file: StoredFile;
+      fileName: string;
+      storedMime: string;
+      size: number;
+    }[] = [];
+    for (const u of uploads) {
+      const fileName = (u.name || "").trim() || "notes";
+      const key = u.key as string;
+      if (!key.startsWith(originPrefix))
+        return bad(`"${fileName}": upload key does not match the selected subject.`);
+      const mime = u.type || "";
+      const storedMime = (ACCEPTED_MIMES as readonly string[]).includes(mime)
+        ? mime
+        : "application/pdf";
+      const file = toStoredFile("r2", key);
+      const head = await headObject(file);
+      if (!head) return bad(`"${fileName}": the upload was not found — please retry.`);
+      if (head.size > MAX_FILE_BYTES)
+        return bad(`"${fileName}" is too large (max ${MAX_FILE_LABEL}).`);
+      sources.push({ file, fileName, storedMime, size: head.size });
+    }
 
-    // Fan out: one note (+ its files) per target subject.
+    // Fan out: one note (+ its files) per target subject. The origin target uses the
+    // uploaded objects as-is; each extra target gets a server-side COPY (R2→R2, D33).
     const ids: string[] = [];
     for (const target of targets) {
+      const isOrigin = target.subjectId === subjectId;
+
       // --- Insert the parent note row first (files hang off it) ---
       const { data: row, error: insErr } = await supabase
         .from("study_materials")
@@ -219,28 +239,31 @@ export async function POST(request: Request) {
         .single();
       if (insErr) throw insErr;
 
-      // --- Upload each buffered file to the active provider's private store (D27) and
-      // record a child row. Any failure rolls back this target's objects AND note. ---
-      const uploaded: StoredFile[] = [];
+      // --- Attach each file (origin: the uploaded object; extra: a copy) and record a
+      // child row. Any failure rolls back this target's COPIED objects AND its note.
+      // (The origin objects are shared with the source and are only cleaned up if the
+      // origin target itself fails, below.) ---
+      const madeCopies: StoredFile[] = [];
       try {
         const childRows = [];
-        for (let i = 0; i < buffered.length; i++) {
-          const f = buffered[i];
-          const stored = await uploadObject({
-            bucket: STUDY_BUCKET,
-            keyPrefix: `${target.batchId}/${target.subjectId}`,
-            ext: extForUpload(f.mime, f.fileName),
-            contentType: f.storedMime,
-            bytes: f.bytes,
-          });
-          uploaded.push(stored);
+        for (let i = 0; i < sources.length; i++) {
+          const s = sources[i];
+          let stored = s.file;
+          if (!isOrigin) {
+            stored = await copyObject(s.file, {
+              bucket: STUDY_BUCKET,
+              keyPrefix: `${target.batchId}/${target.subjectId}`,
+              ext: extForUpload(s.storedMime, s.fileName),
+            });
+            madeCopies.push(stored);
+          }
           childRows.push({
             material_id: row.id as string,
             storage_provider: stored.provider,
             file_path: stored.path,
-            file_name: f.fileName,
-            file_size: f.size,
-            mime_type: f.storedMime,
+            file_name: s.fileName,
+            file_size: s.size,
+            mime_type: s.storedMime,
             order: i,
           });
         }
@@ -250,7 +273,9 @@ export async function POST(request: Request) {
           .insert(childRows);
         if (filesErr) throw filesErr;
       } catch (err) {
-        await removeObjects(STUDY_BUCKET, uploaded);
+        // Remove this target's own objects: its copies, plus the origin uploads when it
+        // is the origin target that failed.
+        await removeObjects(STUDY_BUCKET, isOrigin ? sources.map((s) => s.file) : madeCopies);
         await supabase.from("study_materials").delete().eq("id", row.id);
         throw err;
       }
@@ -272,7 +297,7 @@ export async function POST(request: Request) {
       id: ids[0],
       ids,
       count: ids.length,
-      file_count: files.length,
+      file_count: uploads.length,
     });
   } catch (error) {
     return handleError(error);

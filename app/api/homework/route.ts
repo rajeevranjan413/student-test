@@ -10,7 +10,13 @@ import {
   type StoredFileMeta,
 } from "@/utils/homework";
 import { extForUpload, isAcceptedFile } from "@/utils/studyMaterial";
-import { removeObjects, uploadObject, type StoredFile } from "@/utils/storage";
+import {
+  copyObject,
+  headObject,
+  removeObjects,
+  toStoredFile,
+  type StoredFile,
+} from "@/utils/storage";
 import { filesByParent } from "@/utils/files";
 import { notifyBatchStudents } from "@/utils/push";
 
@@ -92,13 +98,19 @@ export async function GET(request: Request) {
   }
 }
 
-// POST /api/homework — create homework.
-//  * JSON body  → an MCQ homework (`type:'mcq'`) with its questions.
-//  * multipart  → a FILE homework (`type:'file'`) with an uploaded PDF/image.
+// POST /api/homework — create homework. Both kinds post JSON:
+//  * `questions` present → an MCQ homework (`type:'mcq'`) with its questions.
+//  * `type:'file'` / a `files` array → a FILE homework whose PDF/image bytes were
+//    already uploaded DIRECTLY to R2 by the browser (presigned PUT, D35); the array
+//    carries the resulting object keys to record.
 export async function POST(request: Request) {
   const contentType = request.headers.get("content-type") ?? "";
-  if (contentType.includes("multipart/form-data")) return createFileHomework(request);
-  return createMcqHomework(request);
+  if (!contentType.includes("application/json"))
+    return bad("Expected a JSON body.");
+  const body = await request.json().catch(() => ({}));
+  if (body?.type === "file" || Array.isArray(body?.files))
+    return createFileHomework(body);
+  return createMcqHomework(body);
 }
 
 // Normalise the multi-batch `batchIds` (≥1) or the legacy single `batchId` into a
@@ -128,10 +140,9 @@ async function assertBatchesOwned(
   return null;
 }
 
-async function createMcqHomework(request: Request) {
+async function createMcqHomework(body: Record<string, unknown>) {
   try {
     const { supabase, user } = await requireTeacher();
-    const body = await request.json();
     const {
       title,
       batchId,
@@ -233,64 +244,81 @@ async function createMcqHomework(request: Request) {
   }
 }
 
-async function createFileHomework(request: Request) {
+type IncomingUpload = { key?: string; name?: string; size?: number; type?: string };
+
+async function createFileHomework(body: Record<string, unknown>) {
   try {
     const { supabase, user } = await requireTeacher();
 
-    const form = await request.formData();
-    const title = String(form.get("title") ?? "").trim();
-    const description = String(form.get("description") ?? "").trim();
-    const dueAt = String(form.get("dueAt") ?? "").trim();
-    const statusRaw = String(form.get("status") ?? "draft").trim();
+    const title = String(body?.title ?? "").trim();
+    const description = String(body?.description ?? "").trim();
+    const dueAt = String(body?.dueAt ?? "").trim();
+    const statusRaw = String(body?.status ?? "draft").trim();
     const targetBatchIds = resolveBatchIds(
-      String(form.get("batchId") ?? "").trim() || undefined,
-      form.getAll("batchIds").map((b) => String(b).trim()).filter(Boolean)
+      String(body?.batchId ?? "").trim() || undefined,
+      Array.isArray(body?.batchIds)
+        ? (body.batchIds as unknown[]).map((b) => String(b).trim()).filter(Boolean)
+        : []
     );
-    const files = form
-      .getAll("file")
-      .filter((f): f is File => f instanceof File && f.size > 0);
+    const uploads: IncomingUpload[] = Array.isArray(body?.files)
+      ? (body.files as IncomingUpload[])
+      : [];
 
     if (!title) return bad("A homework title is required.");
     if (targetBatchIds.length === 0) return bad("At least one batch must be selected.");
-    if (files.length === 0)
+    if (uploads.length === 0)
       return bad("At least one PDF or image file is required.");
-    if (files.length > MAX_FILES_PER_ITEM)
+    if (uploads.length > MAX_FILES_PER_ITEM)
       return bad(`You can attach up to ${MAX_FILES_PER_ITEM} files at once.`);
-    for (const file of files) {
-      const fileName = file.name || "homework";
-      if (!isAcceptedFile(file.type || "", fileName))
+    for (const u of uploads) {
+      const fileName = (u.name || "").trim() || "homework";
+      if (!u.key || typeof u.key !== "string")
+        return bad(`"${fileName}": upload was not completed.`);
+      if (!isAcceptedFile(u.type || "", fileName))
         return bad(`"${fileName}": only PDF or image files are allowed.`);
-      if (file.size > MAX_FILE_BYTES)
-        return bad(`"${fileName}" is too large (max ${MAX_FILE_LABEL}).`);
     }
 
     const owned = await assertBatchesOwned(supabase, targetBatchIds, user.id);
     if (owned) return owned;
 
+    // The browser uploaded to ONE batch's prefix; derive that origin batch from the keys
+    // (`homework/<batchId>/…`) and require it to be one of the owned targets. Verify each
+    // object exists in R2 (HEAD gives the authoritative size).
+    const originBatchId = String(uploads[0].key).split("/")[1] ?? "";
+    if (!targetBatchIds.includes(originBatchId))
+      return bad("Upload keys do not match the selected batches.");
+    const originPrefix = `${HOMEWORK_BUCKET}/${originBatchId}/`;
+    const sources: {
+      file: StoredFile;
+      fileName: string;
+      storedMime: string;
+      size: number;
+    }[] = [];
+    for (const u of uploads) {
+      const fileName = (u.name || "").trim() || "homework";
+      const key = u.key as string;
+      if (!key.startsWith(originPrefix))
+        return bad(`"${fileName}": upload key does not match the selected batch.`);
+      const mime = u.type || "";
+      const storedMime = (ACCEPTED_MIMES as readonly string[]).includes(mime)
+        ? mime
+        : "application/pdf";
+      const file = toStoredFile("r2", key);
+      const head = await headObject(file);
+      if (!head) return bad(`"${fileName}": the upload was not found — please retry.`);
+      if (head.size > MAX_FILE_BYTES)
+        return bad(`"${fileName}" is too large (max ${MAX_FILE_LABEL}).`);
+      sources.push({ file, fileName, storedMime, size: head.size });
+    }
+
     const publish = statusRaw === "published";
 
-    // Read each file's bytes ONCE, then re-upload them for every target batch (D33) —
-    // each batch's objects live under its own `<batch_id>/…` prefix.
-    const buffered = await Promise.all(
-      files.map(async (file) => {
-        const fileName = file.name || "homework";
-        const mime = file.type || "";
-        const storedMime = (ACCEPTED_MIMES as readonly string[]).includes(mime)
-          ? mime
-          : "application/pdf";
-        return {
-          fileName,
-          mime,
-          storedMime,
-          size: file.size,
-          bytes: Buffer.from(await file.arrayBuffer()),
-        };
-      })
-    );
-
-    // Fan out: one file homework (+ its uploaded files) per selected batch.
+    // Fan out: one file homework per selected batch. The origin batch uses the uploaded
+    // objects as-is; each other batch gets a server-side COPY (R2→R2, no bytes through
+    // this server — D33), living under its own `<batch_id>/…` prefix.
     const created: { id: string; status: string }[] = [];
     for (const bId of targetBatchIds) {
+      const isOrigin = bId === originBatchId;
       const { data: hw, error: insErr } = await supabase
         .from("homework")
         .insert({
@@ -307,28 +335,29 @@ async function createFileHomework(request: Request) {
         .single();
       if (insErr) throw insErr;
 
-      // Upload each buffered file to the active provider's private store (D27) and
-      // record a child row. Any failure rolls back this batch's objects AND parent.
-      const uploaded: StoredFile[] = [];
+      // Attach each file (origin: the uploaded object; other: a copy) and record a child
+      // row. Any failure rolls back this batch's own objects AND parent.
+      const madeCopies: StoredFile[] = [];
       try {
         const childRows = [];
-        for (let i = 0; i < buffered.length; i++) {
-          const f = buffered[i];
-          const stored = await uploadObject({
-            bucket: HOMEWORK_BUCKET,
-            keyPrefix: bId,
-            ext: extForUpload(f.mime, f.fileName),
-            contentType: f.storedMime,
-            bytes: f.bytes,
-          });
-          uploaded.push(stored);
+        for (let i = 0; i < sources.length; i++) {
+          const s = sources[i];
+          let stored = s.file;
+          if (!isOrigin) {
+            stored = await copyObject(s.file, {
+              bucket: HOMEWORK_BUCKET,
+              keyPrefix: bId,
+              ext: extForUpload(s.storedMime, s.fileName),
+            });
+            madeCopies.push(stored);
+          }
           childRows.push({
             homework_id: hw.id as string,
             storage_provider: stored.provider,
             file_path: stored.path,
-            file_name: f.fileName,
-            file_size: f.size,
-            mime_type: f.storedMime,
+            file_name: s.fileName,
+            file_size: s.size,
+            mime_type: s.storedMime,
             order: i,
           });
         }
@@ -338,7 +367,7 @@ async function createFileHomework(request: Request) {
           .insert(childRows);
         if (filesErr) throw filesErr;
       } catch (err) {
-        await removeObjects(HOMEWORK_BUCKET, uploaded);
+        await removeObjects(HOMEWORK_BUCKET, isOrigin ? sources.map((s) => s.file) : madeCopies);
         await supabase.from("homework").delete().eq("id", hw.id);
         throw err;
       }

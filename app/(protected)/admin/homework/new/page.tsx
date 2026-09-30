@@ -15,6 +15,7 @@ import {
   Form,
   Input,
   InputNumber,
+  Progress,
   Row,
   Segmented,
   Select,
@@ -43,6 +44,7 @@ import {
   MAX_FILES_PER_ITEM,
 } from "@/utils/homework";
 import { isAcceptedFile } from "@/utils/studyMaterial";
+import { uploadFilesDirect } from "@/utils/uploadClient";
 import { QuestionEditorModal } from "@/components/admin/QuestionEditorModal";
 import { QuestionContent } from "@/components/QuestionContent";
 
@@ -82,6 +84,7 @@ export default function NewHomeworkPage() {
   const [type, setType] = useState<"mcq" | "file">("mcq");
   const [publishState, setPublishState] = useState<"published" | "draft">("published");
   const [saving, setSaving] = useState(false);
+  const [uploadPercent, setUploadPercent] = useState<number | null>(null);
 
   // MCQ builder state
   const [questions, setQuestions] = useState<GQ[]>([]);
@@ -280,16 +283,30 @@ export default function NewHomeworkPage() {
       }
     }
     setSaving(true);
+    setUploadPercent(0);
     try {
-      const body = new FormData();
-      body.append("title", values.title.trim());
-      for (const bId of values.batchIds) body.append("batchIds", bId);
-      if (values.description) body.append("description", values.description);
-      if (dueAtIso) body.append("dueAt", dueAtIso);
-      body.append("status", publish ? "published" : "draft");
-      for (const file of files) body.append("file", file);
+      // Upload the bytes DIRECTLY to R2 (presigned PUT) under the FIRST selected batch's
+      // prefix; the server copies them to the other batches. Track overall progress.
+      const uploaded = await uploadFilesDirect(
+        "homework",
+        { batchId: values.batchIds[0] },
+        files,
+        (frac) => setUploadPercent(Math.round(frac * 100))
+      );
 
-      const res = await fetch("/api/homework", { method: "POST", body });
+      const res = await fetch("/api/homework", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "file",
+          title: values.title.trim(),
+          batchIds: values.batchIds,
+          description: values.description,
+          dueAt: dueAtIso || null,
+          status: publish ? "published" : "draft",
+          files: uploaded,
+        }),
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Upload failed");
       const n = data.count ?? 1;
@@ -303,6 +320,7 @@ export default function NewHomeworkPage() {
       message.error(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setSaving(false);
+      setUploadPercent(null);
     }
   };
 
@@ -570,6 +588,14 @@ export default function NewHomeworkPage() {
             PDF or image (PNG, JPG, WebP, GIF). Attach up to {MAX_FILES_PER_ITEM}{" "}
             files, each up to {MAX_FILE_LABEL}.
           </Text>
+          {uploadPercent !== null && (
+            <Progress
+              percent={uploadPercent}
+              size="small"
+              status="active"
+              style={{ marginTop: 8 }}
+            />
+          )}
         </Card>
       )}
 

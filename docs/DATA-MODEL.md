@@ -188,17 +188,16 @@ objects first so no bytes are orphaned.
 | `order` | int | not null default 0; display order within the note |
 | `created_at` | timestamptz | |
 
-> **File hosting (pluggable — D27):** the note bytes (PDF or image) live in a
-> **private** store — a private **Supabase Storage bucket** (`study-material`) by
-> default, or **Cloudinary** (private `authenticated` `raw` assets) when
-> `STORAGE_PROVIDER=cloudinary` (e.g. after the Supabase free tier fills up). All
-> object access is server-side through `utils/storage.ts`: uploads on `POST` go to
-> the active provider; on download, a short-lived / signed authorized URL is minted
-> for the file's **own** provider (per `storage_provider`) after the caller is
-> authorized (owning teacher, or a student enrolled in `batch_id`). Neither store is
-> public — a raw object URL never works, so an authorized URL is the only way in,
-> and enrollment is re-checked server-side each time. Because each row records its
-> provider, files uploaded before a switch keep serving from where they were stored.
+> **File hosting (Cloudflare R2 — D34, supersedes D27):** the note bytes (PDF or
+> image) live in a **private Cloudflare R2 bucket** under a `study-material/` key
+> prefix. Bytes are uploaded **directly from the browser to R2** via a presigned **PUT**
+> URL (`POST /api/uploads/sign`), then the `POST` finalize records the row from the
+> object key (up to **2 GB**/file, D36); on download, a short-lived (~60 s) **presigned
+> GET URL** is
+> minted after the caller is authorized (owning teacher, or a student enrolled in
+> `batch_id`). The bucket is **private** — a raw object URL never works, so a presigned
+> URL is the only way in, and enrollment is re-checked server-side each time. Each row
+> records its `storage_provider` (`r2`) so the per-row dispatch structure is preserved.
 
 ### homework (F14 — a batch-wise assignment)
 | Column | Type | Notes |
@@ -238,7 +237,7 @@ objects first so no bytes are orphaned.
 | `id` | uuid PK | passed to the download route as `?file=` |
 | `homework_id` | uuid | → homework on delete cascade |
 | `storage_provider` | text | not null, default `supabase` (CHECK `supabase`\|`cloudinary`) (D27) |
-| `file_path` | text | not null; provider-relative reference (object path in the private `homework` bucket, or the Cloudinary `public_id`); never a public URL |
+| `file_path` | text | not null; the R2 object key (e.g. `homework/<batch>/<uuid>.pdf`); never a public URL |
 | `file_name` | text | not null; original filename, used on download |
 | `file_size` | bigint | bytes (for display) |
 | `mime_type` | text | `application/pdf` or an `image/*` type |
@@ -316,6 +315,28 @@ pushed. This makes the periodic **test-live cron** idempotent (a student is remi
 once, however often the cron runs) and makes a re-publish a no-op. Writes are
 service-role only.
 
+### app_settings (F17 — runtime admin-editable settings)
+| Column | Type | Notes |
+|---|---|---|
+| `key` | text PK | setting name |
+| `value` | jsonb | not null, default `'{}'`; shape depends on the key |
+| `updated_at` | timestamptz | not null, default `now()` |
+| `updated_by` | uuid | → profiles on delete set null; who last changed it |
+
+A small key-value store the admin edits from `/admin/settings` (no redeploy). Keys:
+- `registration_secret_pass` → `{ "value": "<code>" }` — the center-wide code for
+  **multi-batch** self-registration (F1/D35). Overrides the `REGISTRATION_SECRET_PASS`
+  env when present; the register route resolves the effective value via
+  `getRegistrationSecret()` (`utils/settings.ts`).
+- `student_banners` → `{ "items": [ { "key": "<r2 object key>", "alt": "<text>" } ] }` —
+  the student home carousel slides (F12). Image bytes live in the private R2 bucket
+  under `settings/banners/`; absent ⇒ the student home shows the bundled
+  `public/home/*` defaults. `GET /api/student/banners` serves signed URLs via the
+  service role so students never read this table.
+
+Created by `20260929130000_app_settings.sql`. RLS is **teacher-only** (no student/anon
+policy at all).
+
 ## Attempt timing model (canonical)
 
 Let `open = scheduled_at` and `due = scheduled_at + duration_minutes` (the
@@ -365,6 +386,7 @@ raw browser query can no longer bypass them.
 | `homework_files` (D28) | teacher: full CRUD; student: SELECT files whose parent homework is enrolled + published + non-archived. Bytes stay private; download route re-authorizes per request. |
 | `homework_questions` | teacher: full CRUD; student: SELECT body of a takeable homework's questions. **`correct_answer`/`explanation` column-REVOKEd from everyone but service role.** |
 | `homework_attempts` | student/teacher SELECT (own / all). **No client writes** — inserts (graded MCQ submit, file mark-done) go through the service role. |
+| `app_settings` (F17) | **teacher-only** SELECT/INSERT/UPDATE/DELETE; **no student/anon policy** (students can't read the registration code). Banners reach students only via `/api/student/banners` (service role → signed URLs). |
 
 - **Roles:** `anon` (public, no session), `authenticated` (students *and* teachers
   share this one Postgres role — role split is via the `is_teacher()` helper, not

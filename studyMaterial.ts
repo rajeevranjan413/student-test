@@ -1,0 +1,117 @@
+// Shared constants + types for Study Material (F13). Kept framework-agnostic so
+// both the Route Handlers and the antd pages import from one place.
+
+/** The storage bucket that holds the note bytes (private; see migration + D24). */
+export const STUDY_BUCKET = "study-material";
+
+/**
+ * Max upload size per file — 2 GB. Files upload DIRECTLY from the browser to R2 via a
+ * presigned PUT URL (never buffered through the app server), so this large cap is safe
+ * (D35). A single presigned PUT handles up to 5 GB, so 2 GB needs no multipart.
+ */
+export const MAX_FILE_BYTES = 2 * 1024 * 1024 * 1024;
+
+/** Human label for the size cap, reused in UI copy + API error messages. */
+export const MAX_FILE_LABEL = "2 GB";
+
+/** Max number of files attachable to one note / one file-homework in a single go. */
+export const MAX_FILES_PER_ITEM = 20;
+
+/**
+ * Accepted content types for a note file: PDF or a common raster image (D25).
+ * SVG is deliberately excluded — it can carry script and would open inline.
+ */
+export const ACCEPTED_MIMES = [
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+] as const;
+
+export type AcceptedMime = (typeof ACCEPTED_MIMES)[number];
+
+/** The `accept` attribute for the antd Upload / file input. */
+export const ACCEPT_ATTR = ".pdf,.png,.jpg,.jpeg,.webp,.gif,application/pdf,image/*";
+
+/** File extension to store per accepted mime (used to build the object path). */
+const EXT_BY_MIME: Record<AcceptedMime, string> = {
+  "application/pdf": "pdf",
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+  "image/gif": "gif",
+};
+
+/** Is this an accepted note file? Falls back to the filename extension. */
+export function isAcceptedFile(mime: string, fileName: string): boolean {
+  if ((ACCEPTED_MIMES as readonly string[]).includes(mime)) return true;
+  return /\.(pdf|png|jpe?g|webp|gif)$/i.test(fileName);
+}
+
+/** Whether a note's mime is an image (vs. a PDF) — drives the icon/preview. */
+export function isImageMime(mime: string | null | undefined): boolean {
+  return !!mime && mime.startsWith("image/");
+}
+
+/** The storage extension for an upload, from its mime then its filename. */
+export function extForUpload(mime: string, fileName: string): string {
+  if (mime in EXT_BY_MIME) return EXT_BY_MIME[mime as AcceptedMime];
+  const m = /\.([a-z0-9]+)$/i.exec(fileName);
+  return m ? m[1].toLowerCase() : "bin";
+}
+
+/** A subject folder as returned by the subject list APIs. */
+export type Subject = {
+  id: string;
+  batch_id: string;
+  batch_name: string | null;
+  name: string;
+  note_count: number;
+  created_at: string;
+  /**
+   * Latest note activity in this folder — max over its notes of
+   * greatest(created_at, updated_at), or null when the folder is empty. Powers the
+   * F16 "new notes" indicator (with note_count) on the student folder grid.
+   */
+  activity_at?: string | null;
+};
+
+/**
+ * A single attached file (child row) as returned by the list/detail APIs. A note or
+ * a file-homework may own several of these. Storage internals (path/provider) stay
+ * server-side; the browser only ever gets an id it can pass to the download route.
+ */
+export type StoredFileMeta = {
+  id: string;
+  file_name: string;
+  file_size: number | null;
+  mime_type: string | null;
+};
+
+/** A study-material (note) row as returned by the list APIs (no storage internals). */
+export type StudyMaterial = {
+  id: string;
+  subject_id: string | null;
+  batch_id: string;
+  batch_name: string | null;
+  kind: string;
+  title: string;
+  description: string | null;
+  /** All files attached to this note (may be empty for a legacy row with none). */
+  files: StoredFileMeta[];
+  created_at: string;
+};
+
+/** Human-readable file size, e.g. "1.4 MB". Null-safe for the UI. */
+export function formatFileSize(bytes: number | null | undefined): string {
+  if (bytes == null || bytes <= 0) return "—";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+}

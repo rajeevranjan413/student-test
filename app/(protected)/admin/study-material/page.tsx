@@ -13,6 +13,7 @@ import {
   List,
   Modal,
   Popconfirm,
+  Progress,
   Select,
   Space,
   Spin,
@@ -47,6 +48,7 @@ import {
   type StudyMaterial,
   type Subject,
 } from "@/utils/studyMaterial";
+import { uploadFilesDirect } from "@/utils/uploadClient";
 
 const { Title, Text } = Typography;
 
@@ -89,6 +91,7 @@ export default function AdminStudyMaterialPage() {
   // Add-notes modal (opened from a subject's notes view)
   const [notesOpen, setNotesOpen] = useState(false);
   const [notesSaving, setNotesSaving] = useState(false);
+  const [uploadPercent, setUploadPercent] = useState<number | null>(null);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [notesForm] = Form.useForm();
 
@@ -232,15 +235,28 @@ export default function AdminStudyMaterialPage() {
     }
 
     setNotesSaving(true);
+    setUploadPercent(0);
     try {
-      const body = new FormData();
-      body.append("title", values.title);
-      body.append("subjectId", current.subjectId);
-      if (values.description) body.append("description", values.description);
-      for (const bId of values.extraBatchIds ?? []) body.append("batchIds", bId);
-      for (const file of files) body.append("file", file);
+      // Phase 1+2: upload the bytes DIRECTLY to R2 (presigned PUT), tracking progress.
+      const uploaded = await uploadFilesDirect(
+        "study-material",
+        { subjectId: current.subjectId },
+        files,
+        (frac) => setUploadPercent(Math.round(frac * 100))
+      );
 
-      const res = await fetch("/api/study-materials", { method: "POST", body });
+      // Phase 3: finalize — record the note + file rows from the uploaded keys.
+      const res = await fetch("/api/study-materials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: values.title,
+          subjectId: current.subjectId,
+          description: values.description,
+          batchIds: values.extraBatchIds ?? [],
+          files: uploaded,
+        }),
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Upload failed");
 
@@ -254,6 +270,7 @@ export default function AdminStudyMaterialPage() {
       message.error(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setNotesSaving(false);
+      setUploadPercent(null);
     }
   };
 
@@ -653,6 +670,14 @@ export default function AdminStudyMaterialPage() {
             <Text type="secondary" style={{ fontSize: 12 }}>
               PDF or image (PNG, JPG, WebP, GIF), up to {MAX_FILE_LABEL} each — up to {MAX_FILES_PER_ITEM} files.
             </Text>
+            {uploadPercent !== null && (
+              <Progress
+                percent={uploadPercent}
+                size="small"
+                status="active"
+                style={{ marginTop: 8 }}
+              />
+            )}
           </Form.Item>
         </Form>
       </Modal>

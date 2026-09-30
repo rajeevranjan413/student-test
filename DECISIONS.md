@@ -530,7 +530,14 @@ batch switcher (D23) still filters. Nav/titles updated in `appNav.ts`.
 **Verify:** `npx tsc --noEmit` clean · `npx eslint` (changed files) clean · `npx
 next build` passes. Not click-tested live (no `.env`/Supabase Storage in the repo).
 
-## D27 — Dual file storage: Supabase + Cloudinary, switchable per env (F13/F14) — DONE
+## D27 — Dual file storage: Supabase + Cloudinary, switchable per env (F13/F14) — SUPERSEDED by D34
+
+> **Superseded by D34:** file storage is now **Cloudflare R2 only**. The
+> provider-agnostic `utils/storage.ts` layer and the per-row `storage_provider` stamp
+> described here **remain**, but the Supabase-Storage and Cloudinary backends were
+> removed; `STORAGE_PROVIDER`/`CLOUDINARY_*` env vars are gone. The rest of this entry is
+> kept for history.
+
 
 **Context (maintainer request):** file uploads (Study-Material notes F13, `file`-kind
 Homework F14) go to a private Supabase Storage bucket. The **Supabase free tier caps
@@ -828,3 +835,178 @@ UI reuses antd `Select mode="multiple"`.
   (`teacher_id = auth.uid()`).
 - `/home` (legacy builder) still uses off-brand raw colours and has no dark mode;
   fold it into the design tokens or retire it in the same pass.
+
+## D34 — File storage is Cloudflare R2 only (supersedes D27's Supabase/Cloudinary) — DONE
+
+**Ask (maintainer):** "use Cloudflare for file upload … configure Cloudflare R2 … keep
+**only** Cloudflare." So the dual Supabase-Storage + Cloudinary design (D27) is replaced
+by a single backend: **Cloudflare R2**.
+
+**Resolution — R2 behind the same storage seam:**
+- The provider-agnostic seam from D27 stays: Study-Material (F13) and file-Homework
+  (F14) still call only `utils/storage.ts` (`uploadObject` / `signedUrl` /
+  `removeObjects` / `toStoredFile` / `activeUploadProvider`). Only the **implementation**
+  changed — the Supabase-Storage and Cloudinary branches were deleted and replaced with
+  one R2 implementation. The Route Handlers and the download JSON (`{ url }`) are
+  unchanged.
+- **R2 is S3-compatible**, so uploads use the AWS S3 SDK (`@aws-sdk/client-s3`) against
+  the R2 endpoint (`https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com`, `region:"auto"`),
+  and reads are **presigned GET URLs** (`@aws-sdk/s3-request-presigner`,
+  `SIGNED_URL_TTL_SECONDS` ≈ 60 s) — mirroring the old private-bucket model: the bucket is
+  private, a raw object URL isn't reachable, and the route authorizes the caller
+  (owning teacher / enrolled student) **before** minting the URL. `download` sets a
+  `Content-Disposition: attachment` (original filename preserved); `view` is inline. The
+  `cloudinary` npm dependency was removed.
+- **One bucket, prefixed** (`R2_BUCKET`): the logical "bucket" name the features pass
+  (`study-material` / `homework`) becomes the object-key **prefix**, so `file_path` is a
+  self-contained R2 key like `study-material/<batch>/<subject>/<uuid>.pdf`.
+- **Per-row `storage_provider` retained.** New rows stamp `r2`. Migration
+  `20260929120000_storage_provider_r2.sql` (additive/idempotent) widens the four
+  `storage_provider` CHECK constraints to also allow `r2` and flips the column DEFAULT to
+  `r2`; `supabase`/`cloudinary` stay valid so any legacy row is still constraint-valid
+  (this deployment is fresh, so there are none). `toStoredFile` returns an `r2` file.
+- **Env:** `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` (+
+  optional `R2_ENDPOINT`). SERVER ONLY. `STORAGE_PROVIDER` and `CLOUDINARY_*` are gone
+  from `.env.example`.
+
+**Security unchanged:** the bucket is private; the R2 secret never reaches the browser;
+the download route authorizes before every presign; no RLS change (the metadata tables'
+policies gate the rows; the bytes were never browser-reachable).
+
+**Verify:** `npx tsc --noEmit` clean · `npx eslint utils/storage.ts` clean · `npx next
+build` passes. Live upload/view/download round-trip verified against the maintainer's R2
+bucket (needs the `R2_*` keys in `.env.local`).
+
+## D35 — Registration code depends on batch count (supersedes D23's "one code → all") — DONE
+
+**Ask (maintainer):** "if student enroll for a batch then student should enter the
+matching enroll code for that batch, and if they selected multiple batches then student
+should enter global code in env `REGISTRATION_SECRET_PASS`."
+
+**Resolution — the enrollment code's meaning is now conditional on selection count
+(`POST /api/auth/register`, service-role):**
+- **Exactly one batch selected** → the entered `secretPass` must equal **that batch's**
+  own `secret_pass` (400 `Invalid enrollment code for the selected batch.` otherwise).
+- **More than one batch selected** → the entered code must equal the global
+  **`REGISTRATION_SECRET_PASS`** env — a single center-wide code the teacher hands out
+  for multi-batch signups. If that env is **unset**, multi-batch self-registration is
+  **disabled** (400 `Multi-batch registration is not available…`); a wrong value → 400
+  `Invalid registration code for multiple batches.`
+- Unchanged: all selected batches must exist and be `active` (checked before any account
+  is created); on success the student is enrolled in **all** of them (bulk insert, `23505`
+  idempotent); role is server-forced to `student`; `batchIds` (≥1) required with legacy
+  single `batchId` still accepted.
+
+**Why this supersedes D23.** D23 accepted a single code that matched **any** selected
+batch (with `REGISTRATION_SECRET_PASS` as an optional master override that unlocked any
+batch), deliberately trading the per-batch gate for UX. The maintainer reversed that: a
+single-batch signup is now strictly gated by that batch's own code (no global bypass),
+and the global code is repurposed as the **explicit, separate** credential required for
+multi-batch signups — so knowing one batch's code no longer enrolls a student into other
+batches they tick. `REGISTRATION_SECRET_PASS` is no longer a single-batch master override.
+
+**UI (`/signup`, Tailwind):** the code field's label + placeholder switch on
+`batchIds.length` ("Batch Enrollment Code" / "Registration Code"); helper copy explains
+one batch uses that batch's code and multiple require the center's registration code. No
+schema change; `.env.example` `REGISTRATION_SECRET_PASS` entry unchanged (still optional,
+now scoped to multi-batch).
+
+**Verify:** `npx tsc --noEmit` clean · `npx eslint app/api/auth/register/route.ts
+app/signup/page.tsx` clean · `npx next build` passes. Not click-tested (no `.env` in repo).
+
+## D36 — 2 GB uploads via direct browser→R2 presigned PUT (supersedes D28's 100 MB / server-buffered) — DONE
+
+**Ask (maintainer):** raise the file-upload cap to **2 GB** (Study-Material notes F13,
+file-Homework F14). The D28 path buffered each file **in memory in the Next route**
+(`Buffer.from(await file.arrayBuffer())`) and re-streamed it to storage — unworkable at
+2 GB (Node Buffer ~2 GB ceiling, server RAM, and host request-body caps, e.g. Vercel
+serverless = 4.5 MB). So the cap couldn't simply be bumped; the upload path was
+re-architected.
+
+**Resolution — the bytes never touch the app server:**
+- **Two-phase, direct-to-R2 (S3 presigned PUT).** (1) The browser asks
+  **`POST /api/uploads/sign`** (teacher-only; ownership of the subject/batch verified
+  here) for a presigned **PUT** URL per file. (2) It PUTs each file's bytes **straight to
+  R2** (`utils/uploadClient.ts`, `XMLHttpRequest` for progress), sending the exact signed
+  `Content-Type`. (3) It calls the finalize endpoint (`POST /api/study-materials` |
+  `/api/homework`, now **JSON**) with the resulting object **keys**; the server `HEAD`s
+  each key (confirms it exists, trusts the authoritative size), verifies the key sits
+  under the expected `<bucket>/<owner-scoped-prefix>/`, and records the rows. A single
+  presigned PUT handles up to 5 GB, so 2 GB needs no multipart.
+- **Multi-batch fan-out (D33) without re-uploading.** The browser uploads **once** (to
+  the origin subject/batch prefix); the finalize step **copies server-side** (R2→R2
+  `CopyObject`, `utils/storage.ts#copyObject`) to each extra target — no bytes through
+  the app server. Rollback per target removes its own objects (the origin's uploads only
+  if the origin target itself fails) + its parent row.
+- **Cap:** `MAX_FILE_BYTES` = **2 GB**, `MAX_FILE_LABEL` = "2 GB"
+  (`utils/studyMaterial.ts`); still ≤ 20 files per item. Presigned PUT TTL is 1 h
+  (`PUT_URL_TTL_SECONDS`) since a big upload takes time (the signature is checked when the
+  PUT starts). Read (GET) URLs stay ~60 s.
+- **New storage helpers:** `presignPutUrl`, `copyObject`, `headObject` added to
+  `utils/storage.ts`; `uploadObject` (server-buffered upload) is retired from the two file
+  routes. New client helper `utils/uploadClient.ts`; new endpoint
+  `app/api/uploads/sign/route.ts`. Both admin upload screens show an upload **progress
+  bar**.
+
+**Bucket CORS (required once):** because the browser now PUTs cross-origin to R2, the
+`R2_BUCKET` needs a CORS rule allowing `PUT, GET, HEAD` from the app's origin(s)
+(`AllowedHeaders: *`, `ExposeHeaders: ETag`). Set it in the Cloudflare R2 dashboard
+(Bucket → Settings → CORS Policy) — an Object-Read/Write API token can't manage CORS. The
+presigned signature remains the real auth, so `AllowedOrigins` may be `*` or narrowed to
+your domain.
+
+**Security unchanged:** the sign route is teacher-only and verifies ownership before
+handing out a PUT URL; finalize re-verifies the objects (HEAD + prefix check) and
+ownership; the bucket stays private; reads are still short-lived presigned GETs authorized
+per request. No answer-secrecy/RLS impact.
+
+**Verify:** `npx tsc --noEmit` clean · `npx eslint` (changed files) clean · `npx next
+build` passes. The full flow — presign PUT → direct PUT → HEAD → server-side copy → signed
+GET → delete — was verified live against the maintainer's R2 bucket (`ncc`). CORS must be
+set on the bucket before the in-browser upload works (dashboard step above).
+
+## D37 — Runtime admin settings: `app_settings` table (registration code + banners) (F17) — DONE
+
+**Ask (maintainer):** add a **settings icon in the admin header** opening a settings
+screen where the admin can (1) **view and change `REGISTRATION_SECRET_PASS`** and
+(2) **change the student home slider banner images** — "I will add more later."
+
+**Problem — an env var can't be edited at runtime.** `REGISTRATION_SECRET_PASS` was read
+from `process.env` (D35), and the banners were a hard-coded array in the student page. Both
+needed to become **data the admin edits without a redeploy**. So settings move into the DB.
+
+**Resolution — a small `app_settings` key-value table + a settings screen:**
+- **`app_settings(key text pk, value jsonb, updated_at, updated_by)`** (migration
+  `20260929130000_app_settings.sql`). RLS is **teacher-only** — no student/anon policy at
+  all, so the registration code (and any future secret) is unreadable by a student JWT.
+  Keys so far: `registration_secret_pass` → `{value}`; `student_banners` → `{items:[{key,alt}]}`.
+- **Registration code = DB override, env = fallback.** The register route no longer reads
+  `process.env` directly; it calls `getRegistrationSecret()` (`utils/settings.ts`, service
+  role) → the DB setting when non-empty, else `REGISTRATION_SECRET_PASS`, else disabled. A
+  deployment that only sets the env behaves exactly as before (no migration data required).
+  This does **not** change D35's rule (single batch = that batch's `secret_pass`; multiple =
+  this center-wide code) — only **where the center-wide code comes from**.
+- **Banners = R2 images, served without exposing the row.** Admin uploads slide images via
+  the existing direct-to-R2 seam (D36) under a new teacher-only **`banner`** scope on
+  `/api/uploads/sign` (images only, key prefix `settings/banners/`). The list is saved via
+  `PUT /api/admin/settings`; removed slides' objects are best-effort deleted.
+  `GET /api/student/banners` (any authed user) reads the setting with the **service role**
+  and returns **only** short-lived signed view URLs — students never read `app_settings`.
+  When the setting is empty it returns the bundled `public/home/*` defaults, so the student
+  home is unchanged until the admin customizes it. **Tradeoff:** custom (R2) banners aren't
+  offline-cached by the PWA the way the bundled statics were; the bundled defaults remain
+  the offline/fallback set. Signed GET URLs (~60 s) are minted per page load, which is
+  enough to load the carousel images.
+- **UI:** a **gear icon** in `AppBar` shown only on `/admin/*` → `/admin/settings` (antd),
+  with a Registration-code card (`Input.Password`, show/hide, shows db-vs-env source) and a
+  Banners card (thumbnail list + alt edit + remove + upload, max `MAX_BANNERS`=8). The gear
+  is **not** a bottom-nav tab — settings is a rarely-visited sub-screen, so a header action +
+  back arrow fits the existing shell (D17/F11) without crowding the 6 admin tabs.
+
+**Security:** teacher-only table + admin API (`requireTeacher`); the student banner route
+returns images only; the registration secret is never sent to a student and the settings
+row is RLS-hidden from them. No answer-secrecy/RLS regression.
+
+**Verify:** `npx tsc --noEmit` clean · `npx eslint` (changed files) clean · `npx next build`
+passes. Not click-tested (no `.env` in repo); the banner upload needs the `R2_*` keys + the
+bucket CORS from D36.

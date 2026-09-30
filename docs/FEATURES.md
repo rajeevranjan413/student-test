@@ -25,6 +25,7 @@ Feature index:
 | F14 | Homework (batch-wise: MCQ attempt + PDF/image mark-done) | ✅ |
 | F15 | Student push notifications (homework · tests · study material) | 🟡 |
 | F16 | Student "what's new" (new/updated badges + alert counts) | ✅ |
+| F17 | Application settings (admin: registration code + student banners) | ✅ |
 
 ---
 
@@ -35,9 +36,10 @@ Feature index:
 **UI:** `/login` (chooser: Student vs Teacher), `/login/student` and
 `/login/teacher` (separate, single-purpose sign-in forms — no in-form role
 toggle), `/signup` (student self-register: **pick one or more batches** via a
-checkbox list + enter the enrollment code for **any one** of them), logout in
-header. Students enrolled in more than one batch get a **batch switcher** in the
-app header (see D23). *(Tailwind — existing.)*
+checkbox list; the code field is **that batch's enrollment code** for a single
+selection, or the **center-wide registration code** when more than one is picked
+— D35), logout in header. Students enrolled in more than one batch get a **batch
+switcher** in the app header (see D23). *(Tailwind — existing.)*
 
 **Rules:**
 - `middleware.ts` gates `/admin/*` (teacher) and `/student/*` (authed); redirects
@@ -54,15 +56,18 @@ app header (see D23). *(Tailwind — existing.)*
   cannot sign in on `/login/student` — the client no longer decides this by
   redirect. `expectedRole` is optional; omitted (or an unknown value) preserves the
   old any-role behaviour.
-- **Student self-registration is gated by a per-batch `secret_pass`** (the
-  enrollment code the teacher hands out — see `DATA-MODEL.md → batches.secret_pass`),
-  **not** a single global secret. A student may select **multiple** batches and
-  enter **one** code; the register route (service-role) rejects any missing/archived
-  selected batch, then accepts the code if it matches the `secret_pass` of **any**
-  selected batch (D23) and enrolls the student in **all** of them, so `batchIds`
-  (≥1) is required (legacy single `batchId` still accepted). `REGISTRATION_SECRET_PASS`
-  is retained only as an **optional global master override** (accepts any batch);
-  it is not required and, if unset, only the per-batch code works.
+- **Student self-registration is gated by an enrollment code whose meaning depends
+  on the number of selected batches (D35):** the register route (service-role)
+  rejects any missing/archived selected batch, then —
+  - **one batch selected** → the entered code must equal **that batch's**
+    `secret_pass` (see `DATA-MODEL.md → batches.secret_pass`);
+  - **multiple batches selected** → the entered code must equal the global
+    **`REGISTRATION_SECRET_PASS`** env (the center-wide multi-batch code); if that
+    env is unset, multi-batch self-registration is disabled (400).
+
+  On success the student is enrolled in **all** selected batches, so `batchIds`
+  (≥1) is required (legacy single `batchId` still accepted). This supersedes the
+  D23 rule where one batch's code unlocked the others in the same signup.
 - **Batch switcher:** `GET /api/student/batches` lists the student's enrolled
   batches; `BatchProvider` holds the active selection (persisted to localStorage,
   `null` = all). The header `<select>` shows only when a student has >1 batch and
@@ -82,7 +87,8 @@ app header (see D23). *(Tailwind — existing.)*
 - [x] Student registers with the **batch's** enrollment code (wrong code → 400,
       never partially creates the account); can then log in.
 - [x] Student can select **multiple batches** at signup and enroll in all of them
-      with **one** matching enrollment code (D23).
+      using the global `REGISTRATION_SECRET_PASS` code; a single-batch signup uses
+      that batch's own `secret_pass` (D35).
 - [x] A student in >1 batch sees a **header batch switcher** that filters their
       test dashboard; a student in one batch sees no switcher.
 
@@ -91,7 +97,7 @@ app header (see D23). *(Tailwind — existing.)*
 `components/layout/AppShell.tsx`, `app/login`
 (chooser + `student/` + `teacher/` subroutes), `app/signup`,
 `app/(protected)/student/page.tsx`.
-Rationale in `DECISIONS.md D18`, `D23`.
+Rationale in `DECISIONS.md D18`, `D23`, `D35`.
 
 **Notes:** the earlier "global `REGISTRATION_SECRET_PASS`" design in F1/ARCHITECTURE
 contradicted the per-batch `secret_pass` in DATA-MODEL (the source of truth) and the
@@ -667,20 +673,22 @@ parent's legacy inline file columns are kept but nullable.
   `DELETE /api/subjects/[id]` re-checks ownership (404 on mismatch) and
   **hard-deletes** the subject; its `study_materials` cascade (FK) and their storage
   objects are removed best-effort first (no orphaned bytes).
-- **Teacher-only note writes.** `POST /api/study-materials` (`requireTeacher`,
-  multipart) takes a **`subjectId`**, an optional **`batchIds`** list of extra batches
-  to also post into, and **one or more** `file` parts, validates each is a PDF or image
-  (`application/pdf` / `image/*`, ≤ **100 MB** each, ≤ 20 files), verifies the subject →
-  batch belongs to the teacher. It resolves a **target subject per selected batch** —
-  the origin subject for its own batch, and a **same-named, teacher-owned subject
-  (created if missing)** in each extra batch (D33) — then **fan-outs**: per target it
-  inserts the note parent and uploads each file's bytes to the **active private storage
-  provider** via the shared `utils/storage.ts` layer (Supabase Storage by default;
-  **Cloudinary** once `STORAGE_PROVIDER=cloudinary`, e.g. after the Supabase free tier
-  fills — D27), recording a `study_material_files` child row (its own `storage_provider`
-  + provider-relative `file_path`, `order`). File bytes are buffered once and re-uploaded
-  per target. If a target's upload/insert fails, that target's uploaded objects **and**
-  its note parent are rolled back (no orphan); it returns `{ ids, count }`. `DELETE
+- **Teacher-only note writes (direct-to-R2, D36).** The bytes are uploaded **directly
+  from the browser to R2** via presigned PUT URLs from `POST /api/uploads/sign`
+  (`requireTeacher`, subject ownership checked); the browser then calls
+  `POST /api/study-materials` (`requireTeacher`, **JSON**) with a **`subjectId`**, an
+  optional **`batchIds`** list of extra batches, and the uploaded file **keys**
+  (each a PDF or image, `application/pdf` / `image/*`, ≤ **2 GB** each, ≤ 20 files). The
+  server `HEAD`s each key (confirms it exists, trusts its size, checks it sits under the
+  subject's prefix) and verifies the subject → batch belongs to the teacher. It resolves
+  a **target subject per selected batch** — the origin subject for its own batch, and a
+  **same-named, teacher-owned subject (created if missing)** in each extra batch (D33) —
+  then **fan-outs**: the origin target uses the uploaded objects as-is; each extra target
+  gets a **server-side R2→R2 copy** (`utils/storage.ts#copyObject`, no bytes through the
+  server), recording a `study_material_files` child row (`storage_provider='r2'` +
+  `file_path` = the R2 key, `order`). If a target's copy/insert fails, that target's
+  objects **and** its note parent are rolled back (no orphan); it returns `{ ids, count }`.
+  `DELETE
   /api/study-materials/[id]` hard-deletes (ownership-checked): it removes every file
   object **from whichever provider holds it** (per row) then the note (child rows
   cascade).
@@ -696,9 +704,9 @@ parent's legacy inline file columns are kept but nullable.
   403/404), resolves the requested file (verified to belong to the note; defaults to
   the note's first file) and only then mints a short-lived / signed URL **for the
   file's own provider** (`utils/storage.ts#signedUrl`) — `?mode=download` (attachment,
-  original filename) or `?mode=view` (inline). Enrollment is re-checked each time. (Supabase → a ~60 s
-  signed URL; Cloudinary → an expiring `private_download_url` for download and a
-  signed `authenticated` delivery URL for inline view — D27.)
+  original filename) or `?mode=view` (inline). Enrollment is re-checked each time. (R2 →
+  a ~60 s **presigned GET URL**; `download` sets `Content-Disposition: attachment`,
+  `view` is inline — D34.)
 - **Additive & idempotent:** new `subjects` + `study_material_files` tables; a
   **nullable** `subject_id` on `study_materials` + relaxed NOT NULL on its legacy file
   columns; no existing column renamed/dropped, reuses the D24 bucket. Existing
@@ -710,7 +718,7 @@ parent's legacy inline file columns are kept but nullable.
       under a subject; every file appears under that note in the subject's folder.
 - [x] Teacher can **also post the note to other batches** in one go; each gets a
       same-named subject (created if missing) with its own copy of the note (D33).
-- [x] Non-PDF/-image or oversized (> 100 MB) upload is rejected server-side; a
+- [x] Non-PDF/-image or oversized (> 2 GB) upload is rejected; a
       cross-teacher batch/subject is refused.
 - [x] A student enrolled in the batch sees the subject folders and, opening one,
       can **view** and **download** each of a note's files; filenames are preserved.
@@ -738,7 +746,7 @@ resolver),
 `app/(protected)/student/study-material/page.tsx` (folder grid),
 `app/(protected)/student/study-material/[subjectId]/page.tsx` (notes in a subject),
 `utils/studyMaterial.ts` (shared types + PDF/image constants),
-`utils/storage.ts` (provider-agnostic upload/signed-URL/delete — Supabase | Cloudinary, D27),
+`utils/storage.ts` (upload/presigned-URL/delete — Cloudflare R2, D34),
 `supabase/migrations/20260918160000_storage_provider.sql` (`storage_provider` column),
 `components/layout/appNav.ts` (Study tab + titles),
 `app/(protected)/student/page.tsx` (F12 card → active). Rationale in
@@ -764,10 +772,10 @@ off a `batch`. MCQ questions live in `homework_questions` (mirrors `questions`,
 answer columns column-REVOKEd). One `homework_attempts` row per student per
 homework (UNIQUE) records either a graded MCQ `submitted` attempt or a `done`
 completion. A `file` homework owns **many files** in the child table
-`homework_files` (D28); their bytes live in a **private** `homework` store, reached
-only via server-minted signed URLs through the shared `utils/storage.ts` layer —
-Supabase Storage by default, **Cloudinary** once `STORAGE_PROVIDER=cloudinary` (each
-file row stamps its `storage_provider`, so upload/download/delete route per-file; D27).
+`homework_files` (D28); their bytes live in a **private** Cloudflare R2 bucket (under a
+`homework/` key prefix), reached only via server-minted presigned URLs through the shared
+`utils/storage.ts` layer (each file row stamps its `storage_provider` = `r2`; D34,
+supersedes D27's Supabase/Cloudinary).
 
 **UI (antd):**
 - **Admin `/admin/homework`** — **batch-first** (D29): first a premium grid of
@@ -783,8 +791,9 @@ file row stamps its `storage_provider`, so upload/download/delete route per-file
   description, publish/draft — selecting N batches fan-outs into N homework, D33) then
   **Tabs**: *MCQ questions* (photo → **Generate** with the AI endpoint, plus **Add
   manually**; each question editable/removable; optional marks scheme + target) and
-  *PDF / Image* (**multi-file** `Upload`, held client-side until submit). Submit posts
-  to `POST /api/homework` (JSON for MCQ, multipart for file).
+  *PDF / Image* (**multi-file** `Upload` with an upload **progress bar** — bytes go
+  directly to R2 on submit, D36). Both submit paths post **JSON** to `POST /api/homework`
+  (MCQ carries questions; file carries the R2 object keys from the presigned upload).
 - **Student `/student/homework`** — homework for the student's enrolled batches
   (respects the header batch switcher), each tagged **To do** / **Done** (+ score
   for graded MCQ). **`/student/homework/[id]`** = the MCQ attempt form → submit →
@@ -797,12 +806,13 @@ file row stamps its `storage_provider`, so upload/download/delete route per-file
   to the teacher, then **fan-outs** — creating one homework per batch (D33) and
   notifying each batch's students; it returns `{ ids, count }` (+ first `id`/`status`).
   MCQ: inserts the homework + its questions per batch (rolls back that batch's homework
-  if the question insert fails). File: accepts **one or more** `file` parts, validates
-  each is a PDF/image (`application/pdf` / `image/*`, ≤ **100 MB** each, ≤ 20 files),
-  buffers the bytes once, then per batch inserts the homework parent, uploads each file
-  to the private `homework` store (path `<batch_id>/<uuid>.<ext>`), and inserts a
-  `homework_files` child row per file (rolls back that batch's objects **and** parent on
-  failure). `GET
+  if the question insert fails). File (direct-to-R2, D36): the browser uploads the bytes
+  straight to R2 via presigned PUT (`POST /api/uploads/sign`), then posts the object
+  **keys** as JSON; the server validates each is a PDF/image (≤ **2 GB** each, ≤ 20 files)
+  and exists (`HEAD`), then per batch inserts the homework parent and a `homework_files`
+  child row per file — the **origin** batch uses the uploaded objects, **other** batches
+  get a **server-side R2→R2 copy** (path `homework/<batch_id>/<uuid>.<ext>`), rolling back
+  that batch's objects **and** parent on failure. `GET
   /api/homework?batch=` lists the teacher's homework with question counts + attached
   files. `GET /api/homework/[id]` returns the full homework (MCQ answers via the
   **service role**, column-revoked; file rows for `file` homework). `DELETE
@@ -1008,6 +1018,66 @@ nothing new slips past them.
 `activity_at` added to `GET /api/student/tests`, `/api/student/homework`,
 `/api/student/subjects` (+ types in `utils/homework.ts`, `utils/studyMaterial.ts`).
 Rationale in `DECISIONS.md D32`.
+
+---
+
+## F17 — Application settings (admin)  ✅
+
+**Goal:** A single admin screen for center-wide settings the maintainer changes at
+runtime (no redeploy), starting with the **multi-batch registration code** and the
+**student home banner slides**; more settings will be added here later.
+
+**UI:** a **gear icon** in the app header (shown only on `/admin/*`) → `/admin/settings`
+(*antd*). Two cards to start:
+- **Registration code** — an `Input.Password` (show/hide) prefilled with the current
+  multi-batch code; **Save** writes it. Helper text explains it is the code students
+  need when they self-register for **more than one** batch (single-batch signups use
+  the batch's own `secret_pass`, F1/D35). A note shows whether the effective value
+  currently comes from the DB setting or the env fallback.
+- **Student banners** — the slides on the student home carousel (F12). Shows the
+  current slides (thumbnail + editable **alt** text + remove), an **Upload images**
+  control to add more (direct-to-R2, reusing the F13/F14 upload seam), and **Save**.
+  Up to `MAX_BANNERS` (8) slides. Saving with **no** slides clears the setting so the
+  student home reverts to the bundled defaults.
+
+**Rules:**
+- **Teacher-only, server-enforced.** `app_settings` (see `DATA-MODEL.md`) has RLS with
+  **only** teacher policies — a student JWT can't read it, so the registration code (or
+  any future secret) never leaks. Reads/writes in the admin API use the service role
+  after `requireTeacher`.
+- **Registration code is a DB override, env is the fallback.** The register route
+  resolves the effective multi-batch code via `getRegistrationSecret()`
+  (`utils/settings.ts`): the `registration_secret_pass` setting when non-empty, else
+  `process.env.REGISTRATION_SECRET_PASS`, else "disabled". No behaviour change for a
+  deployment that only sets the env (D37).
+- **Banners are served to students without exposing the settings row.**
+  `GET /api/student/banners` (any authed user) reads the setting via the **service
+  role** and returns **only** short-lived signed R2 view URLs (`{ banners:[{url,alt}] }`);
+  when the setting is empty it returns the bundled `public/home/*` defaults. Banner
+  image bytes live in the private R2 bucket under the `settings/banners/` prefix; the
+  upload sign route (`/api/uploads/sign`) gains a teacher-only `banner` scope
+  (images only). Saving a new banner list best-effort deletes the R2 objects for
+  slides that were removed.
+- **Additive only.** New table + new routes; nothing existing changed except the
+  register route swapping a direct `process.env` read for `getRegistrationSecret()`.
+
+**Acceptance:**
+- [x] A gear icon appears in the header on admin pages (only) and opens `/admin/settings`.
+- [x] Admin can view and change the multi-batch registration code; a multi-batch signup
+      then requires the new code (and single-batch signups are unaffected).
+- [x] With no DB code set, the env `REGISTRATION_SECRET_PASS` still works (fallback).
+- [x] A student JWT cannot read `app_settings` (RLS: teacher-only).
+- [x] Admin can add/remove student banner images + alt text; the student home carousel
+      shows the configured slides, and reverts to the bundled defaults when none are set.
+- [x] `tsc --noEmit`, lint (changed files), and `next build` pass.
+
+**Code:** `supabase/migrations/20260929130000_app_settings.sql`, `utils/settings.ts`,
+`app/api/admin/settings/route.ts` (GET/PUT), `app/api/student/banners/route.ts`,
+`app/api/uploads/sign/route.ts` (+`banner` scope), `utils/uploadClient.ts` (+`banner`
+scope), `app/(protected)/admin/settings/page.tsx`,
+`components/layout/AppShell.tsx` (gear icon), `components/layout/appNav.ts` (title),
+`app/(protected)/student/page.tsx` (banner fetch), `app/api/auth/register/route.ts`
+(uses `getRegistrationSecret`). Rationale in `DECISIONS.md D37`.
 
 ---
 

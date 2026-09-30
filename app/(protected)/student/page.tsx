@@ -28,16 +28,19 @@ const { Title, Text } = Typography;
  * security-critical rule stays in the F6 endpoints the Tests card links to.
  */
 
-// Banner creatives — real Neeraj Competitive Classes photos bundled under
-// public/home/*. This array is the single place to edit; local (not remote) so
-// the PWA can serve them offline. Swap a file or path to change a slide.
-const BANNERS: { src: string; alt: string }[] = [
-  { src: "/home/hero.jpg", alt: "Neeraj Competitive Classes — felicitation ceremony" },
-  { src: "/home/toppers.jpg", alt: "Celebrating a medal-winning student" },
-  { src: "/home/banner.jpg", alt: "Our coaching center" },
-  { src: "/home/felicitation.jpg", alt: "Celebrating a student's success" },
-  { src: "/home/teachers-day.jpg", alt: "Teacher's Day at Neeraj Competitive Classes" },
-  { src: "/home/award.jpg", alt: "Awarding a hard-working student" },
+type Banner = { url: string; alt: string };
+
+// Bundled default creatives (public/home/*) — shown until the admin configures
+// custom banners at /admin/settings (F17), and as an offline fallback. The live
+// list comes from GET /api/student/banners, which returns these same defaults when
+// no custom banners are set. Keep this in sync with that route's DEFAULT_BANNERS.
+const DEFAULT_BANNERS: Banner[] = [
+  { url: "/home/hero.jpg", alt: "Neeraj Competitive Classes — felicitation ceremony" },
+  { url: "/home/toppers.jpg", alt: "Celebrating a medal-winning student" },
+  { url: "/home/banner.jpg", alt: "Our coaching center" },
+  { url: "/home/felicitation.jpg", alt: "Celebrating a student's success" },
+  { url: "/home/teachers-day.jpg", alt: "Teacher's Day at Neeraj Competitive Classes" },
+  { url: "/home/award.jpg", alt: "Awarding a hard-working student" },
 ];
 
 type Section = {
@@ -95,6 +98,9 @@ export default function StudentHome() {
   const router = useRouter();
   // Unseen (new + updated) counts per section — the alert badges on the cards.
   const [counts, setCounts] = useState<Partial<Record<WhatsNewSection, number>>>({});
+  // Banner slides — start with the bundled defaults, then swap in the admin's
+  // configured slides once fetched (F17). Falls back to defaults on any error.
+  const [banners, setBanners] = useState<Banner[]>(DEFAULT_BANNERS);
 
   useEffect(() => {
     (async () => {
@@ -109,6 +115,19 @@ export default function StudentHome() {
         });
       } catch {
         // Best-effort: no badges if the signal can't be fetched.
+      }
+    })();
+
+    (async () => {
+      try {
+        const res = await fetch("/api/student/banners");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (Array.isArray(data.banners) && data.banners.length > 0) {
+          setBanners(data.banners as Banner[]);
+        }
+      } catch {
+        // Best-effort: keep the bundled defaults if the fetch fails.
       }
     })();
   }, []);
@@ -134,8 +153,8 @@ export default function StudentHome() {
 
       {/* Banner slider */}
       <Carousel autoplay autoplaySpeed={4000} draggable adaptiveHeight={false}>
-        {BANNERS.map((b) => (
-          <div key={b.src}>
+        {banners.map((b) => (
+          <div key={b.url}>
             <div
               role="img"
               aria-label={b.alt}
@@ -143,7 +162,7 @@ export default function StudentHome() {
                 aspectRatio: "1200 / 420",
                 width: "100%",
                 borderRadius: 16,
-                backgroundImage: `url(${b.src})`,
+                backgroundImage: `url(${b.url})`,
                 backgroundSize: "cover",
                 backgroundPosition: "center",
                 backgroundColor: "rgba(0,0,0,0.04)",
