@@ -68,6 +68,7 @@ const EXACT_TITLES: Record<string, string> = {
   "/admin/homework/new": "New homework",
   "/admin/students": "Students",
   "/admin/study-material": "Study Material",
+  "/admin/settings": "Settings",
   "/student": "Home",
   "/student/tests": "My Tests",
   "/student/homework": "Homework",

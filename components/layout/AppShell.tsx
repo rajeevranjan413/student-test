@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowLeft, LogOut, MoreVertical } from "lucide-react";
+import { ArrowLeft, LogOut, MoreVertical, Settings } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { NCLogo } from "./NCLogo";
 import { useBatches } from "@/components/providers/BatchProvider";
@@ -144,6 +144,19 @@ export function AppBar() {
               </option>
             ))}
           </select>
+        )}
+        {/* Admin-only: quick access to application settings (F17) */}
+        {section === "admin" && (
+          <Link
+            href="/admin/settings"
+            aria-label="Settings"
+            aria-current={pathname === "/admin/settings" ? "page" : undefined}
+            className={`tap flex h-11 w-11 items-center justify-center rounded-full hover:bg-muted ${
+              pathname.startsWith("/admin/settings") ? "text-primary" : "text-foreground"
+            }`}
+          >
+            <Settings className="h-5 w-5" />
+          </Link>
         )}
         <ThemeToggle />
 

@@ -4,11 +4,15 @@
 /** The storage bucket that holds the note bytes (private; see migration + D24). */
 export const STUDY_BUCKET = "study-material";
 
-/** Max upload size per file — 100 MB (large scanned PDFs fit comfortably). */
-export const MAX_FILE_BYTES = 100 * 1024 * 1024;
+/**
+ * Max upload size per file — 2 GB. Files upload DIRECTLY from the browser to R2 via a
+ * presigned PUT URL (never buffered through the app server), so this large cap is safe
+ * (D35). A single presigned PUT handles up to 5 GB, so 2 GB needs no multipart.
+ */
+export const MAX_FILE_BYTES = 2 * 1024 * 1024 * 1024;
 
 /** Human label for the size cap, reused in UI copy + API error messages. */
-export const MAX_FILE_LABEL = "100 MB";
+export const MAX_FILE_LABEL = "2 GB";
 
 /** Max number of files attachable to one note / one file-homework in a single go. */
 export const MAX_FILES_PER_ITEM = 20;

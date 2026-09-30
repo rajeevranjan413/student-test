@@ -1,83 +1,97 @@
-// Provider-agnostic private file storage — SERVER ONLY (DECISIONS D27).
+// Private file storage on Cloudflare R2 — SERVER ONLY (DECISIONS D34, supersedes D27).
 //
-// The app stores file bytes (Study Material notes F13, `file`-kind Homework F14) in
-// a PRIVATE store and hands the browser short-lived, authorized URLs — never a
-// public link. This module abstracts over TWO backends so the maintainer can keep
-// uploading after the Supabase free-tier storage fills up:
+// The app stores file bytes (Study Material notes F13, `file`-kind Homework F14) in a
+// PRIVATE store and hands the browser short-lived, authorized URLs — never a public
+// link. Bytes live in a single **Cloudflare R2** bucket (S3-compatible). R2 buckets are
+// private by default: a raw object URL is not reachable, so the app mints a short-lived
+// **presigned** GET URL per request, mirroring the old Supabase private-bucket model.
 //
-//   * "supabase"   — a private Supabase Storage bucket + ~60s signed URLs (the
-//                    original F13/F14 path).
-//   * "cloudinary" — a private Cloudinary asset (type 'authenticated',
-//                    resource_type 'raw') + signed delivery / expiring download URLs.
+// Every file row still records its own `storage_provider` (now always `r2` for new
+// uploads); the value is retained so the per-row dispatch structure stays intact and any
+// legacy row is detectable. Import this only from Route Handlers (or their server-only
+// helpers) — it reads the R2 secret access key from env.
 //
-// Which backend NEW uploads use is chosen by `activeUploadProvider()` (the
-// STORAGE_PROVIDER env var). Every file row records its own `storage_provider`, so
-// files already on Supabase keep serving from Supabase even after the switch — the
-// download/delete paths dispatch per-row, not per-env.
-//
-// Security is unchanged from the single-provider design: the bytes are never public,
-// the Route Handler authorizes the caller on every request BEFORE calling
-// `signedUrl`, and only then is a URL minted. Import this only from Route Handlers
-// (or their server-only helpers) — it pulls in service-role / Cloudinary secrets.
+// Layout: ONE R2 bucket (`R2_BUCKET`). The logical "bucket" passed by the features
+// ("study-material" / "homework") is used as the object-key PREFIX, so `file_path` is a
+// self-contained R2 object key like `study-material/<batch>/<subject>/<uuid>.pdf`.
 
 import { randomUUID } from "crypto";
-import { v2 as cloudinary } from "cloudinary";
-import { createAdminClient } from "@/utils/supabase/admin";
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+  CopyObjectCommand,
+  HeadObjectCommand,
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-export type StorageProvider = "supabase" | "cloudinary";
+export type StorageProvider = "r2";
 
-/** How long a minted URL is valid, in seconds. */
+/** How long a minted read (GET) URL is valid, in seconds. */
 export const SIGNED_URL_TTL_SECONDS = 60;
+
+/**
+ * How long a presigned upload (PUT) URL is valid, in seconds. Generous because a large
+ * (up to 2 GB) direct-to-R2 upload can take a while; the signature is checked when the
+ * request STARTS, so a long-running PUT that began before expiry still completes.
+ */
+export const PUT_URL_TTL_SECONDS = 60 * 60;
 
 /** A stored file reference persisted on the row (`storage_provider` + `file_path`). */
 export type StoredFile = { provider: StorageProvider; path: string };
 
-/**
- * The provider NEW uploads go to. Flip `STORAGE_PROVIDER=cloudinary` once the
- * Supabase free tier is full; leave unset (or `supabase`) to keep using Supabase.
- * Existing files are unaffected — each row carries its own provider.
- */
+/** The provider NEW uploads go to. R2 is the only backend (D34). */
 export function activeUploadProvider(): StorageProvider {
-  return (process.env.STORAGE_PROVIDER ?? "").trim().toLowerCase() === "cloudinary"
-    ? "cloudinary"
-    : "supabase";
+  return "r2";
 }
 
-/** True when the three Cloudinary secrets are present. */
-export function isCloudinaryConfigured(): boolean {
+/** True when the R2 credentials + bucket are present. */
+export function isR2Configured(): boolean {
   return Boolean(
-    process.env.CLOUDINARY_CLOUD_NAME &&
-      process.env.CLOUDINARY_API_KEY &&
-      process.env.CLOUDINARY_API_SECRET
+    process.env.R2_ACCOUNT_ID &&
+      process.env.R2_ACCESS_KEY_ID &&
+      process.env.R2_SECRET_ACCESS_KEY &&
+      process.env.R2_BUCKET
   );
 }
 
-let cloudinaryConfigured = false;
-function cld() {
-  if (!isCloudinaryConfigured())
+let _client: S3Client | null = null;
+function r2(): S3Client {
+  if (!isR2Configured())
     throw new Error(
-      "Cloudinary is not configured — set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET."
+      "Cloudflare R2 is not configured — set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_BUCKET."
     );
-  if (!cloudinaryConfigured) {
-    cloudinary.config({
-      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-      api_key: process.env.CLOUDINARY_API_KEY,
-      api_secret: process.env.CLOUDINARY_API_SECRET,
-      secure: true,
+  if (!_client) {
+    // R2's S3 endpoint. `region: "auto"` is what R2 expects; the account-id host routes
+    // to your bucket. An explicit R2_ENDPOINT overrides (e.g. a jurisdiction-specific host).
+    const endpoint =
+      process.env.R2_ENDPOINT?.trim() ||
+      `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
+    _client = new S3Client({
+      region: "auto",
+      endpoint,
+      credentials: {
+        accessKeyId: process.env.R2_ACCESS_KEY_ID as string,
+        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY as string,
+      },
     });
-    cloudinaryConfigured = true;
   }
-  return cloudinary;
+  return _client;
+}
+
+function bucketName(): string {
+  return process.env.R2_BUCKET as string;
 }
 
 export type UploadInput = {
-  /** Supabase bucket name; also used as the Cloudinary folder root (e.g. "study-material"). */
+  /** Logical bucket / key prefix root (e.g. "study-material", "homework"). */
   bucket: string;
-  /** Path segment under the bucket, no leading/trailing slash (e.g. `<batch>/<subject>`). */
+  /** Path segment under the prefix, no leading/trailing slash (e.g. `<batch>/<subject>`). */
   keyPrefix: string;
   /** File extension without a dot (e.g. "pdf", "png"). */
   ext: string;
-  /** The file's MIME type (stored on Supabase objects; informational for Cloudinary raw). */
+  /** The file's MIME type (stored on the R2 object; returned on view). */
   contentType: string;
   /** The raw bytes. */
   bytes: Buffer;
@@ -86,130 +100,160 @@ export type UploadInput = {
 };
 
 /**
- * Upload bytes to the chosen provider's PRIVATE store. Returns the `StoredFile` to
- * persist on the row. Throws on failure (the caller rolls back the DB row).
+ * Upload bytes to the private R2 bucket. Returns the `StoredFile` to persist on the row
+ * (its `path` is the full R2 object key). Throws on failure (the caller rolls back the DB row).
  */
 export async function uploadObject(input: UploadInput): Promise<StoredFile> {
-  const provider = input.provider ?? activeUploadProvider();
-  const key = `${input.keyPrefix}/${randomUUID()}.${input.ext}`.replace(/\/+/g, "/");
+  // Key includes the logical bucket as a prefix, so `file_path` is self-contained.
+  const key = `${input.bucket}/${input.keyPrefix}/${randomUUID()}.${input.ext}`.replace(
+    /\/+/g,
+    "/"
+  );
+  await r2().send(
+    new PutObjectCommand({
+      Bucket: bucketName(),
+      Key: key,
+      Body: input.bytes,
+      ContentType: input.contentType,
+    })
+  );
+  return { provider: "r2", path: key };
+}
 
-  if (provider === "cloudinary") {
-    // Store as a private, untouched 'raw' asset. Uploading everything as `raw`
-    // (rather than 'image'/PDF-as-image) keeps the original bytes and dodges
-    // Cloudinary's default block on delivering PDFs. The public_id carries the
-    // real extension so the delivered file keeps its type/name.
-    const publicId = `${input.bucket}/${key}`.replace(/\/+/g, "/");
-    const client = cld();
-    await new Promise<void>((resolve, reject) => {
-      const stream = client.uploader.upload_stream(
-        {
-          resource_type: "raw",
-          type: "authenticated",
-          public_id: publicId,
-          overwrite: false,
-        },
-        (err) => (err ? reject(err) : resolve())
-      );
-      stream.end(input.bytes);
-    });
-    return { provider, path: publicId };
+/** Build a fresh object key: `<bucket>/<keyPrefix>/<uuid>.<ext>` (slash-collapsed). */
+function newKey(bucket: string, keyPrefix: string, ext: string): string {
+  return `${bucket}/${keyPrefix}/${randomUUID()}.${ext}`.replace(/\/+/g, "/");
+}
+
+export type PresignPutInput = {
+  /** Logical bucket / key prefix root (e.g. "study-material", "homework"). */
+  bucket: string;
+  /** Path segment under the prefix (e.g. `<batch>/<subject>` or `<batch>`). */
+  keyPrefix: string;
+  /** File extension without a dot. */
+  ext: string;
+  /** The MIME type the browser will send — signed, so the PUT must send it verbatim. */
+  contentType: string;
+};
+
+/**
+ * Mint a short-lived presigned **PUT** URL so the browser can upload bytes DIRECTLY to
+ * the private R2 bucket (never through the app server) — required for large (up to 2 GB)
+ * files. Returns the URL plus the `StoredFile` (its key) to persist once the client
+ * confirms the upload. The client MUST send `Content-Type: <contentType>` on the PUT to
+ * match the signature (D35).
+ */
+export async function presignPutUrl(
+  input: PresignPutInput
+): Promise<{ url: string; file: StoredFile; contentType: string }> {
+  const key = newKey(input.bucket, input.keyPrefix, input.ext);
+  const url = await getSignedUrl(
+    r2(),
+    new PutObjectCommand({ Bucket: bucketName(), Key: key, ContentType: input.contentType }),
+    { expiresIn: PUT_URL_TTL_SECONDS }
+  );
+  return { url, file: { provider: "r2", path: key }, contentType: input.contentType };
+}
+
+/**
+ * Server-side copy of an already-uploaded object to a NEW key under `dest` (same R2
+ * bucket). Used by the multi-batch fan-out (D33) so a file uploaded once by the browser
+ * is duplicated per target WITHOUT the bytes passing through the app server. Returns the
+ * new `StoredFile`.
+ */
+export async function copyObject(
+  from: StoredFile,
+  dest: { bucket: string; keyPrefix: string; ext: string }
+): Promise<StoredFile> {
+  const key = newKey(dest.bucket, dest.keyPrefix, dest.ext);
+  // CopySource is `<bucket>/<key>`, URL-encoded but with the slashes preserved.
+  const copySource = `${bucketName()}/${from.path}`
+    .split("/")
+    .map(encodeURIComponent)
+    .join("/");
+  await r2().send(
+    new CopyObjectCommand({ Bucket: bucketName(), CopySource: copySource, Key: key })
+  );
+  return { provider: "r2", path: key };
+}
+
+/**
+ * HEAD an object to confirm it exists and read its authoritative size / content type.
+ * Returns `null` if it doesn't exist (or on any error) — used at finalize to verify the
+ * browser actually uploaded the bytes for a key it claims, and to trust the real size
+ * over a client-reported one. Only R2-backed files are supported.
+ */
+export async function headObject(
+  file: StoredFile
+): Promise<{ size: number; contentType?: string } | null> {
+  if (file.provider !== "r2") return null;
+  try {
+    const r = await r2().send(
+      new HeadObjectCommand({ Bucket: bucketName(), Key: file.path })
+    );
+    return { size: r.ContentLength ?? 0, contentType: r.ContentType };
+  } catch {
+    return null;
   }
-
-  // Supabase Storage (default).
-  const admin = createAdminClient();
-  const { error } = await admin.storage.from(input.bucket).upload(key, input.bytes, {
-    contentType: input.contentType,
-    upsert: false,
-  });
-  if (error) throw error;
-  return { provider, path: key };
 }
 
 export type SignOptions = {
-  /** Supabase bucket (needed only for supabase-backed files). */
+  /** Logical bucket — accepted for call-site compatibility; R2 uses the single R2_BUCKET. */
   bucket: string;
   /** `download` forces an attachment with `fileName`; `view` opens inline. */
   mode: "view" | "download";
   /** Original filename, preserved on download. */
   fileName: string;
+  /** Optional content type to advertise on inline view. */
+  contentType?: string;
 };
 
 /**
- * Mint a short-lived, authorized URL to a stored file. Dispatches on the file's own
- * provider so Supabase- and Cloudinary-backed rows both work after a provider switch.
- * The caller MUST have already authorized the request.
+ * Mint a short-lived, authorized (presigned) GET URL to a stored file. The caller MUST
+ * have already authorized the request. `download` forces an attachment (original name);
+ * `view` opens inline. The presigned URL is unguessable and expires in ~60s.
  */
 export async function signedUrl(file: StoredFile, opts: SignOptions): Promise<string> {
-  if (file.provider === "cloudinary") {
-    const client = cld();
-    if (opts.mode === "download") {
-      // Expiring signed link to the download endpoint — forces an attachment and
-      // preserves the original filename. `format: ""` because the extension is
-      // already part of the public_id (raw asset). `attachment` accepts a filename
-      // string at runtime (its type declares only boolean), hence the cast.
-      const dlOpts = {
-        resource_type: "raw",
-        type: "authenticated",
-        expires_at: Math.floor(Date.now() / 1000) + SIGNED_URL_TTL_SECONDS,
-        attachment: opts.fileName,
-      } as unknown as Parameters<typeof client.utils.private_download_url>[2];
-      return client.utils.private_download_url(file.path, "", dlOpts);
-    }
-    // Inline view: a signed 'authenticated' delivery URL. The signature makes the
-    // URL unguessable; access is re-authorized by the route on every request.
-    return client.url(file.path, {
-      resource_type: "raw",
-      type: "authenticated",
-      sign_url: true,
-      secure: true,
-    });
-  }
+  if (file.provider !== "r2")
+    throw new Error(`Unsupported storage provider "${file.provider}" (only R2 is configured).`);
 
-  // Supabase Storage: a ~60s signed URL from the private bucket.
-  const admin = createAdminClient();
-  const { data, error } = await admin.storage
-    .from(opts.bucket)
-    .createSignedUrl(
-      file.path,
-      SIGNED_URL_TTL_SECONDS,
-      opts.mode === "download" ? { download: opts.fileName } : undefined
-    );
-  if (error || !data?.signedUrl) throw error ?? new Error("Failed to sign URL");
-  return data.signedUrl;
+  const disposition =
+    opts.mode === "download"
+      ? `attachment; filename="${encodeURIComponent(opts.fileName)}"`
+      : "inline";
+
+  return getSignedUrl(
+    r2(),
+    new GetObjectCommand({
+      Bucket: bucketName(),
+      Key: file.path,
+      ResponseContentDisposition: disposition,
+      ...(opts.contentType ? { ResponseContentType: opts.contentType } : {}),
+    }),
+    { expiresIn: SIGNED_URL_TTL_SECONDS }
+  );
 }
 
 /**
- * Best-effort delete of stored objects, grouped by provider so a mixed set (some on
- * Supabase, some on Cloudinary) is handled correctly. Never throws — deletion is a
- * cleanup step and a missing object shouldn't fail the request.
+ * Best-effort delete of stored objects. Never throws — deletion is a cleanup step and a
+ * missing object shouldn't fail the request. The `bucket` arg is accepted for call-site
+ * compatibility; R2 uses the single `R2_BUCKET`.
  */
-export async function removeObjects(bucket: string, files: StoredFile[]): Promise<void> {
-  const supabasePaths = files.filter((f) => f.provider === "supabase").map((f) => f.path);
-  const cloudinaryIds = files.filter((f) => f.provider === "cloudinary").map((f) => f.path);
-
-  if (supabasePaths.length > 0) {
+export async function removeObjects(_bucket: string, files: StoredFile[]): Promise<void> {
+  for (const file of files) {
+    if (file.provider !== "r2") continue;
     try {
-      await createAdminClient().storage.from(bucket).remove(supabasePaths);
-    } catch {
-      /* best-effort */
-    }
-  }
-  for (const publicId of cloudinaryIds) {
-    try {
-      await cld().uploader.destroy(publicId, { resource_type: "raw", type: "authenticated" });
+      await r2().send(new DeleteObjectCommand({ Bucket: bucketName(), Key: file.path }));
     } catch {
       /* best-effort */
     }
   }
 }
 
-/** Build a `StoredFile` from a persisted row's two columns. */
+/** Build a `StoredFile` from a persisted row's two columns. New rows are always `r2`. */
 export function toStoredFile(
-  storageProvider: string | null | undefined,
+  _storageProvider: string | null | undefined,
   filePath: string
 ): StoredFile {
-  return {
-    provider: storageProvider === "cloudinary" ? "cloudinary" : "supabase",
-    path: filePath,
-  };
+  return { provider: "r2", path: filePath };
 }
