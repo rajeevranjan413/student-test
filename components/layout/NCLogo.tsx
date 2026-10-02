@@ -34,7 +34,7 @@ export function NCLogo({
         letterSpacing="0.5"
         fill="#ffffff"
       >
-        NC
+        NCC
       </text>
     </svg>
   );
